@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { createSocket } from './ws.js'
 import { generateIdentity, deriveSharedKey } from './crypto.js'
 import Chat from './Chat.jsx'
@@ -7,10 +7,11 @@ import VideoCall from './VideoCall.jsx'
 const WS_URL = (import.meta.env.VITE_WS_URL) || 'ws://localhost:8080'
 
 export default function App() {
-  const [username, setUsername] = useState('')
-  const [me, setMe] = useState(null) // { privateKey, publicKeyJwk }
-  const [users, setUsers] = useState([]) // [{username, publicKeyJwk}]
-  const [activePeer, setActivePeer] = useState(null) // username
+  const [username, setUsername] = useState('')          // uložené jméno po přihlášení
+  const [inputName, setInputName] = useState('')        // dočasný input
+  const [me, setMe] = useState(null)                    // { privateKey, publicKeyJwk }
+  const [users, setUsers] = useState([])                // [{username, publicKeyJwk}]
+  const [activePeer, setActivePeer] = useState(null)    // username
   const [sharedKeys, setSharedKeys] = useState(new Map()) // peer -> CryptoKey
 
   const socketRef = useRef(null)
@@ -27,11 +28,12 @@ export default function App() {
     const s = createSocket(WS_URL, onMessage)
     socketRef.current = s
     s.send('register', { username: uname, publicKeyJwk: me.publicKeyJwk })
+    setUsername(uname) // přihlášení
   }
 
   function onMessage(data) {
     if (data.type === 'users') {
-      // filter me if present
+      // odeber sebe z listu
       setUsers(data.users.filter(u => u.username !== username))
     }
   }
@@ -39,7 +41,6 @@ export default function App() {
   async function openChatWith(peerName) {
     const peer = users.find(u => u.username === peerName)
     if (!peer) return
-    // derive shared key (cached)
     if (!sharedKeys.has(peerName)) {
       const key = await deriveSharedKey(me.privateKey, peer.publicKeyJwk)
       setSharedKeys(new Map(sharedKeys.set(peerName, key)))
@@ -59,9 +60,17 @@ export default function App() {
         {!username ? (
           <div style={{display:'grid', gap:12}}>
             <h2>👋 E2EE Chat + Video</h2>
-            <input className="input accent" placeholder="Zadej jméno (např. alena)"
-                   value={username} onChange={e=>setUsername(e.target.value.trim())}/>
-            <button className="button" onClick={()=>connect(username)} disabled={!me || !username}>
+            <input
+              className="input accent"
+              placeholder="Zadej jméno (např. alena)"
+              value={inputName}
+              onChange={e=>setInputName(e.target.value.trim())}
+            />
+            <button
+              className="button"
+              onClick={()=>connect(inputName)}
+              disabled={!me || !inputName}
+            >
               Připojit
             </button>
             {!me && <small>Generuji lokální klíče…</small>}
@@ -115,3 +124,4 @@ function Tabs({ chat, video }) {
     </div>
   )
 }
+

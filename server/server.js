@@ -1,3 +1,4 @@
+// server.js
 import express from 'express';
 import { WebSocketServer } from 'ws';
 
@@ -11,7 +12,7 @@ const server = app.listen(PORT, () => {
 // In-memory registry: username -> { ws, publicKeyJwk }
 const users = new Map();
 
-// Broadcast user list to everyone
+// 🔥 Funkce na odeslání seznamu uživatelů všem
 function broadcastUsers() {
   const list = Array.from(users.entries()).map(([name, info]) => ({
     username: name,
@@ -40,19 +41,19 @@ wss.on('connection', (ws) => {
       if (!myName) return;
       users.set(myName, { ws, publicKeyJwk });
       console.log(`Registered: ${myName}`);
-      broadcastUsers();
+      broadcastUsers(); // 🔥 po připojení hned rozešli seznam
       return;
     }
 
     if (type === 'logout') {
       if (myName && users.has(myName)) {
         users.delete(myName);
-        broadcastUsers();
+        broadcastUsers(); // 🔥 po odhlášení aktualizuj seznam
       }
       return;
     }
 
-    // Pass-through helpers
+    // Forward messages (chat, call, ICE...)
     const forwardTypes = new Set([
       'message',
       'image',
@@ -74,8 +75,9 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     if (myName && users.has(myName)) {
       users.delete(myName);
-      broadcastUsers();
+      broadcastUsers(); // 🔥 po zavření aktualizuj seznam
       console.log(`Disconnected: ${myName}`);
     }
   });
 });
+

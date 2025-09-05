@@ -16,7 +16,7 @@ const online = new Map();
 // skupiny: groupName -> Set(usernames)
 const groups = new Map();
 
-// Pomocné funkce pro hesla
+// 🔐 Pomocné funkce pro hesla
 function hashPassword(password, saltHex) {
   const salt = Buffer.from(saltHex, 'hex');
   const hash = scryptSync(password, salt, 64);
@@ -38,7 +38,7 @@ function verifyLogin(username, password) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-// Rozeslání seznamu online uživatelů
+// 📡 Rozeslání seznamu online uživatelů
 function broadcastUsers() {
   const list = Array.from(online.entries()).map(([name, info]) => ({
     username: name,
@@ -50,7 +50,7 @@ function broadcastUsers() {
   }
 }
 
-// Rozeslání seznamu skupin + členů (všichni uvidí)
+// 📡 Rozeslání seznamu skupin + členů
 function broadcastGroups() {
   const list = Array.from(groups.entries()).map(([g, set]) => ({
     name: g,
@@ -104,12 +104,9 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    if (!myName) {
-      // neautorizovaný – ignoruj
-      return;
-    }
+    if (!myName) return; // neautorizovaný – ignoruj
 
-    // --- Klíče po loginu lze doplnit ---
+    // --- UPDATE KEY ---
     if (type === 'updatePublicKey') {
       const { publicKeyJwk } = msg;
       const rec = online.get(myName);
@@ -123,7 +120,7 @@ wss.on('connection', (ws) => {
       const { to } = msg;
       const target = online.get(to);
       if (target && target.ws && target.ws.readyState === 1) {
-        try { target.ws.send(JSON.stringify(msg)); } catch {}
+        target.ws.send(JSON.stringify(msg));
       }
       return;
     }
@@ -158,25 +155,25 @@ wss.on('connection', (ws) => {
     }
 
     if (type === 'group-message') {
-      const { group, payload } = msg; // payload = cokoliv (E2EE ciphertext)
+      const { group, payload } = msg;
       const g = groups.get(group);
       if (!g) return;
       for (const member of g) {
         if (member === myName) continue;
         const target = online.get(member);
         if (target && target.ws && target.ws.readyState === 1) {
-          try { target.ws.send(JSON.stringify({ type:'group-message', from: myName, group, payload })); } catch {}
+          target.ws.send(JSON.stringify({ type:'group-message', from: myName, group, payload }));
         }
       }
       return;
     }
 
-    // --- WebRTC SIGNALIZACE (video i audio) ---
+    // --- WebRTC SIGNALIZACE ---
     if (['call-offer','call-answer','ice-candidate','hangup'].includes(type)) {
       const { to } = msg;
       const target = online.get(to);
       if (target && target.ws && target.ws.readyState === 1) {
-        try { target.ws.send(JSON.stringify(msg)); } catch {}
+        target.ws.send(JSON.stringify(msg));
       }
       return;
     }
@@ -191,6 +188,6 @@ wss.on('connection', (ws) => {
 });
 
 server.listen(PORT, () => {
-  console.log('WS signaling server listening on :' + PORT);
+  console.log('✅ WS signaling server listening on :' + PORT);
 });
 

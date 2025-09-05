@@ -34,15 +34,16 @@ export default function VideoCall({ me, peer, socket }) {
 
   async function setupPeer(audioOnlyMode = false) {
     const iceServers = [
-      { urls: 'stun:stun.l.google.com:19302' },
-      ...(import.meta.env.VITE_TURN_URL ? [{
-        urls: import.meta.env.VITE_TURN_URL,
-        username: import.meta.env.VITE_TURN_USER,
-        credential: import.meta.env.VITE_TURN_PASS
-      }] : [])
-    ]
+  { urls: 'stun:stun.l.google.com:19302' },
+  ...(import.meta.env.VITE_TURN_URL ? [{
+    urls: import.meta.env.VITE_TURN_URL,
+    username: import.meta.env.VITE_TURN_USER,
+    credential: import.meta.env.VITE_TURN_PASS
+  }] : [])
+]
 
-    const pc = new RTCPeerConnection({ iceServers })
+const pc = new RTCPeerConnection({ iceServers })
+
     pcRef.current = pc
 
     pc.onicecandidate = (ev) => {

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { appendHistory, getHistory } from './storage.js'
 import { encryptJSON, decryptJSON } from './crypto.js'
 
-export default function Chat({ me, peer, socket, getKey, isGroup=false, getGroupMembers }) {
+export default function Chat({ me, peer, socket, getKey, isGroup=false, getGroupMembers, tick=0 }) {
   const [text, setText] = useState('')
   const [items, setItems] = useState([])
   const fileRef = useRef(null)
@@ -10,7 +10,7 @@ export default function Chat({ me, peer, socket, getKey, isGroup=false, getGroup
   // načtení historie
   useEffect(() => {
     setItems(getHistory(me, peer));
-  }, [me, peer]);
+  }, [me, peer, tick]);
 
   function pushLocal(msg) {
     appendHistory(me, peer, msg);
@@ -83,4 +83,3 @@ export default function Chat({ me, peer, socket, getKey, isGroup=false, getGroup
     </div>
   )
 }
-

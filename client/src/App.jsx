@@ -24,6 +24,7 @@ export default function App() {
 
   // Keys cache: peer -> CryptoKey
   const [sharedKeys] = useState(new Map())
+  const [historyTick, setHistoryTick] = useState(0)
 
   const socketRef = useRef(null)
 
@@ -66,12 +67,7 @@ export default function App() {
       decryptAndStore(from, data.payload)
       return
     }
-    if (data.type === 'group-message') {
-      const from = data.from
-      const group = data.group
-      appendHistory(username, 'group:'+group, { from, to:'group:'+group, inbound:true, data:data.payload })
-      return
-    }
+    // group-message: not used in current fan-out model
   }
 
   async function decryptAndStore(from, payload) {
@@ -79,7 +75,7 @@ export default function App() {
       const key = await getKey(from)
       const clear = await (await import('./crypto.js')).decryptJSON(key, payload)
       appendHistory(username, from, { from, to:username, inbound:true, data: clear })
-      // pokud zrovna koukám na ten chat, přerenderuje se Chat sám z localStorage při změně peer
+      setHistoryTick(t => t + 1)
     } catch (e) {
       console.warn('decrypt fail', e)
     }
@@ -190,10 +186,11 @@ export default function App() {
                 getKey={getKey}
                 isGroup={true}
                 getGroupMembers={getGroupMembers}
+                tick={historyTick}
               />
             ) : (
               <Tabs
-                chat={<Chat me={username} peer={activePeer} socket={socketRef.current} getKey={getKey} />}
+                chat={<Chat me={username} peer={activePeer} socket={socketRef.current} getKey={getKey} tick={historyTick} />}
                 video={<VideoCall me={username} peer={activePeer} socket={socketRef.current} />}
               />
             )}

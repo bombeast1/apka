@@ -1,110 +1,120 @@
 import React, { useEffect, useRef, useState } from 'react'
 
-const rtcConfig = {
-  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-}
-
 export default function VideoCall({ me, peer, socket }) {
-  const [status, setStatus] = useState('idle') // idle | calling | in-call
-  const localVideoRef = useRef(null)
-  const remoteVideoRef = useRef(null)
-  const pcRef = useRef(null)
-  const localStreamRef = useRef(null)
+  const pcRef = useRef(null);
+  const localRef = useRef(null);
+  const remoteRef = useRef(null);
+  const [inCall, setInCall] = useState(false);
+  const [audioOnly, setAudioOnly] = useState(false);
 
   useEffect(() => {
-    const onWs = (ev) => {
-      const data = ev.detail
-      if (data.to !== me || data.from !== peer) return
+    if (!socket) return;
+    const handler = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (!data) return;
+      } catch { return; }
+    };
+    // nic – posloucháme přes socket.onmessage v App -> tady jen používáme socket přímo
+  }, [socket]);
 
-      if (data.type === 'call-offer') onOffer(data)
-      if (data.type === 'call-answer') onAnswer(data)
-      if (data.type === 'ice-candidate') onIce(data)
-    }
-    window.addEventListener('ws-message', onWs)
-    return () => window.removeEventListener('ws-message', onWs)
-  }, [me, peer])
-
-  async function ensurePC() {
-    if (pcRef.current) return pcRef.current
-    const pc = new RTCPeerConnection(rtcConfig)
-    pc.onicecandidate = (e) => {
-      if (e.candidate) {
-        socket.send('ice-candidate', { from: me, to: peer, candidate: e.candidate })
+  useEffect(() => {
+    if (!socket) return;
+    const onMsg = (e) => {
+      let data; try { data = JSON.parse(e.data); } catch { return; }
+      if (!data) return;
+      if (data.type === 'call-offer' && data.to === me) {
+        acceptOffer(data.offer, data.from, data.mode === 'audio');
       }
-    }
-    pc.ontrack = (e) => {
-      remoteVideoRef.current.srcObject = e.streams[0]
-    }
-    pcRef.current = pc
-    return pc
-  }
+      if (data.type === 'call-answer' && data.to === me) {
+        pcRef.current?.setRemoteDescription(data.answer);
+      }
+      if (data.type === 'ice-candidate' && data.to === me) {
+        pcRef.current?.addIceCandidate(data.candidate).catch(()=>{});
+      }
+      if (data.type === 'hangup' && data.to === me) {
+        endCall();
+      }
+    };
+    socket.addEventListener('message', onMsg);
+    return () => socket.removeEventListener('message', onMsg);
+  }, [socket, me]);
 
-  async function getLocalStream() {
-    if (localStreamRef.current) return localStreamRef.current
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-    localStreamRef.current = stream
-    localVideoRef.current.srcObject = stream
-    return stream
+  async function setupPeer(audioOnlyMode=false) {
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    pcRef.current = pc;
+
+    pc.onicecandidate = (ev) => {
+      if (ev.candidate) {
+        socket?.send(JSON.stringify({ type:'ice-candidate', to: peer, from: me, candidate: ev.candidate }));
+      }
+    };
+    pc.ontrack = (ev) => {
+      if (remoteRef.current) remoteRef.current.srcObject = ev.streams[0];
+    };
+
+    const stream = await navigator.mediaDevices.getUserMedia(audioOnlyMode ? { audio:true, video:false } : { audio:true, video:true });
+    if (localRef.current) localRef.current.srcObject = stream;
+    stream.getTracks().forEach(t => pc.addTrack(t, stream));
+    return pc;
   }
 
   async function startCall() {
-    setStatus('calling')
-    const pc = await ensurePC()
-    const stream = await getLocalStream()
-    stream.getTracks().forEach(t => pc.addTrack(t, stream))
-    const offer = await pc.createOffer()
-    await pc.setLocalDescription(offer)
-    socket.send('call-offer', { from: me, to: peer, sdp: offer })
+    const pc = await setupPeer(audioOnly);
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    setInCall(true);
+    socket?.send(JSON.stringify({ type:'call-offer', to: peer, from: me, offer, mode: audioOnly ? 'audio' : 'video' }));
   }
 
-  async function onOffer({ sdp }) {
-    const pc = await ensurePC()
-    const stream = await getLocalStream()
-    stream.getTracks().forEach(t => pc.addTrack(t, stream))
-    await pc.setRemoteDescription(new RTCSessionDescription(sdp))
-    const answer = await pc.createAnswer()
-    await pc.setLocalDescription(answer)
-    socket.send('call-answer', { from: me, to: peer, sdp: answer })
-    setStatus('in-call')
+  async function acceptOffer(offer, from, audioOnlyMode=false) {
+    setAudioOnly(!!audioOnlyMode);
+    const pc = await setupPeer(!!audioOnlyMode);
+    await pc.setRemoteDescription(offer);
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    setInCall(true);
+    socket?.send(JSON.stringify({ type:'call-answer', to: from, from: me, answer }));
   }
 
-  async function onAnswer({ sdp }) {
-    const pc = await ensurePC()
-    await pc.setRemoteDescription(new RTCSessionDescription(sdp))
-    setStatus('in-call')
-  }
-
-  async function onIce({ candidate }) {
-    try {
-      await pcRef.current?.addIceCandidate(new RTCIceCandidate(candidate))
-    } catch (e) {
-      console.error('addIceCandidate failed', e)
+  function endCall() {
+    setInCall(false);
+    if (pcRef.current) {
+      pcRef.current.getSenders().forEach(s => s.track && s.track.stop());
+      pcRef.current.close();
+      pcRef.current = null;
     }
-  }
-
-  function hangup() {
-    try { pcRef.current?.close() } catch {}
-    pcRef.current = null
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(t => t.stop())
-      localStreamRef.current = null
+    if (localRef.current?.srcObject) {
+      localRef.current.srcObject.getTracks().forEach(t=>t.stop());
+      localRef.current.srcObject = null;
     }
-    localVideoRef.current.srcObject = null
-    remoteVideoRef.current.srcObject = null
-    setStatus('idle')
+    if (remoteRef.current?.srcObject) {
+      remoteRef.current.srcObject.getTracks().forEach(t=>t.stop());
+      remoteRef.current.srcObject = null;
+    }
+    socket?.send(JSON.stringify({ type:'hangup', to: peer, from: me }));
   }
 
   return (
     <div style={{display:'grid', gap:12}}>
-      <h3>Video s {peer}</h3>
-      <div className="videoWrap">
-        <video ref={localVideoRef} autoPlay muted playsInline />
-        <video ref={remoteVideoRef} autoPlay playsInline />
+      <div style={{display:'flex', gap:12, flexWrap:'wrap'}}>
+        <video ref={localRef} autoPlay playsInline muted style={{width:240, background:'#000', borderRadius:8}}/>
+        <video ref={remoteRef} autoPlay playsInline style={{width:240, background:'#000', borderRadius:8}}/>
       </div>
-      <div className="toolbar">
-        <button className="button" onClick={startCall} disabled={status!=='idle'}>Start Call</button>
-        <button className="button" onClick={hangup} disabled={status==='idle'}>Hang up</button>
+
+      <div style={{display:'flex', gap:8}}>
+        <label style={{display:'flex', alignItems:'center', gap:6}}>
+          <input type="checkbox" checked={audioOnly} onChange={e=>setAudioOnly(e.target.checked)} />
+          Jen audio hovor
+        </label>
+
+        {!inCall ? (
+          <button className="button" onClick={startCall}>Zahájit hovor</button>
+        ) : (
+          <button className="button" onClick={endCall}>Ukončit</button>
+        )}
       </div>
+      <small>Tip: pro WebRTC je potřeba HTTPS a povolený mikrofon/kamera.</small>
     </div>
   )
 }

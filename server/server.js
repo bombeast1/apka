@@ -1,30 +1,66 @@
-// server.js
+// server/server.js
 import express from 'express';
 import { WebSocketServer } from 'ws';
+import http from 'http';
+import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+const server = http.createServer(app);
 
-const server = app.listen(PORT, () => {
-  console.log(`WS signaling server listening on :${PORT}`);
-});
+// --- In-memory úložiště ---
+// uživatelské účty: username -> { salt, passHashHex }
+const accounts = new Map();
+// online: username -> { ws, publicKeyJwk }
+const online = new Map();
+// skupiny: groupName -> Set(usernames)
+const groups = new Map();
 
-// In-memory registry: username -> { ws, publicKeyJwk }
-const users = new Map();
+// Pomocné funkce pro hesla
+function hashPassword(password, saltHex) {
+  const salt = Buffer.from(saltHex, 'hex');
+  const hash = scryptSync(password, salt, 64);
+  return hash.toString('hex');
+}
+function createAccount(username, password) {
+  if (accounts.has(username)) return { ok:false, reason:'USER_EXISTS' };
+  const salt = randomBytes(16).toString('hex');
+  const passHashHex = hashPassword(password, salt);
+  accounts.set(username, { salt, passHashHex });
+  return { ok:true };
+}
+function verifyLogin(username, password) {
+  const rec = accounts.get(username);
+  if (!rec) return false;
+  const hashHex = hashPassword(password, rec.salt);
+  const a = Buffer.from(hashHex, 'hex');
+  const b = Buffer.from(rec.passHashHex, 'hex');
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 
-// 🔥 Funkce na odeslání seznamu uživatelů všem
+// Rozeslání seznamu online uživatelů
 function broadcastUsers() {
-  const list = Array.from(users.entries()).map(([name, info]) => ({
+  const list = Array.from(online.entries()).map(([name, info]) => ({
     username: name,
-    publicKeyJwk: info.publicKeyJwk
+    publicKeyJwk: info.publicKeyJwk || null
   }));
-  console.log("Aktuální seznam uživatelů:", list); // 🔥 DEBUG
   const payload = JSON.stringify({ type: 'users', users: list });
-  for (const [, info] of users) {
+  for (const [, info] of online) {
     try { info.ws.send(payload); } catch {}
   }
 }
 
+// Rozeslání seznamu skupin + členů (všichni uvidí)
+function broadcastGroups() {
+  const list = Array.from(groups.entries()).map(([g, set]) => ({
+    name: g,
+    members: Array.from(set)
+  }));
+  const payload = JSON.stringify({ type: 'groups', groups: list });
+  for (const [, info] of online) {
+    try { info.ws.send(payload); } catch {}
+  }
+}
 
 const wss = new WebSocketServer({ server });
 
@@ -34,39 +70,111 @@ wss.on('connection', (ws) => {
   ws.on('message', (buf) => {
     let msg;
     try { msg = JSON.parse(buf.toString()); } catch { return; }
-
     const { type } = msg;
 
-    if (type === 'register') {
-      const { username, publicKeyJwk } = msg;
-      myName = String(username || '').trim();
-      if (!myName) return;
-      users.set(myName, { ws, publicKeyJwk });
-      console.log(`Registered: ${myName}`);
-      broadcastUsers(); // 🔥 po připojení hned rozešli seznam
+    // --- AUTH ---
+    if (type === 'registerAccount') {
+      const { username, password } = msg;
+      const uname = String(username || '').trim();
+      if (!uname || !password) return ws.send(JSON.stringify({ type:'auth', ok:false, reason:'BAD_INPUT' }));
+      const r = createAccount(uname, password);
+      return ws.send(JSON.stringify({ type:'auth', phase:'register', ...r }));
+    }
+
+    if (type === 'login') {
+      const { username, password, publicKeyJwk } = msg;
+      const uname = String(username || '').trim();
+      if (!uname || !password) return ws.send(JSON.stringify({ type:'auth', ok:false, reason:'BAD_INPUT' }));
+      if (!verifyLogin(uname, password)) {
+        return ws.send(JSON.stringify({ type:'auth', phase:'login', ok:false, reason:'INVALID_CREDENTIALS' }));
+      }
+      myName = uname;
+      online.set(myName, { ws, publicKeyJwk: publicKeyJwk || null });
+      ws.send(JSON.stringify({ type:'auth', phase:'login', ok:true, username: myName }));
+      broadcastUsers();
+      broadcastGroups();
       return;
     }
 
     if (type === 'logout') {
-      if (myName && users.has(myName)) {
-        users.delete(myName);
-        broadcastUsers(); // 🔥 po odhlášení aktualizuj seznam
+      if (myName && online.has(myName)) {
+        online.delete(myName);
+        broadcastUsers();
       }
       return;
     }
 
-    // Forward messages (chat, call, ICE...)
-    const forwardTypes = new Set([
-      'message',
-      'image',
-      'call-offer',
-      'call-answer',
-      'ice-candidate'
-    ]);
+    if (!myName) {
+      // neautorizovaný – ignoruj
+      return;
+    }
 
-    if (forwardTypes.has(type)) {
+    // --- Klíče po loginu lze doplnit ---
+    if (type === 'updatePublicKey') {
+      const { publicKeyJwk } = msg;
+      const rec = online.get(myName);
+      if (rec) { rec.publicKeyJwk = publicKeyJwk || null; }
+      broadcastUsers();
+      return;
+    }
+
+    // --- CHAT 1:1 ---
+    if (type === 'message' || type === 'image') {
       const { to } = msg;
-      const target = users.get(to);
+      const target = online.get(to);
+      if (target && target.ws && target.ws.readyState === 1) {
+        try { target.ws.send(JSON.stringify(msg)); } catch {}
+      }
+      return;
+    }
+
+    // --- SKUPINY ---
+    if (type === 'create-group') {
+      const { name } = msg;
+      const g = String(name || '').trim();
+      if (!g) return;
+      if (!groups.has(g)) groups.set(g, new Set());
+      groups.get(g).add(myName);
+      broadcastGroups();
+      return;
+    }
+
+    if (type === 'join-group') {
+      const { name } = msg;
+      const g = String(name || '').trim();
+      if (!g || !groups.has(g)) return;
+      groups.get(g).add(myName);
+      broadcastGroups();
+      return;
+    }
+
+    if (type === 'leave-group') {
+      const { name } = msg;
+      const g = String(name || '').trim();
+      if (!g || !groups.has(g)) return;
+      groups.get(g).delete(myName);
+      broadcastGroups();
+      return;
+    }
+
+    if (type === 'group-message') {
+      const { group, payload } = msg; // payload = cokoliv (E2EE ciphertext)
+      const g = groups.get(group);
+      if (!g) return;
+      for (const member of g) {
+        if (member === myName) continue;
+        const target = online.get(member);
+        if (target && target.ws && target.ws.readyState === 1) {
+          try { target.ws.send(JSON.stringify({ type:'group-message', from: myName, group, payload })); } catch {}
+        }
+      }
+      return;
+    }
+
+    // --- WebRTC SIGNALIZACE (video i audio) ---
+    if (['call-offer','call-answer','ice-candidate','hangup'].includes(type)) {
+      const { to } = msg;
+      const target = online.get(to);
       if (target && target.ws && target.ws.readyState === 1) {
         try { target.ws.send(JSON.stringify(msg)); } catch {}
       }
@@ -75,11 +183,14 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    if (myName && users.has(myName)) {
-      users.delete(myName);
-      broadcastUsers(); // 🔥 po zavření aktualizuj seznam
-      console.log(`Disconnected: ${myName}`);
+    if (myName && online.has(myName)) {
+      online.delete(myName);
+      broadcastUsers();
     }
   });
+});
+
+server.listen(PORT, () => {
+  console.log('WS signaling server listening on :' + PORT);
 });
 

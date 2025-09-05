@@ -1,108 +1,66 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { encryptString, decryptToString, encryptBytes, decryptToBytes } from './crypto.js'
+import { appendHistory, getHistory } from './storage.js'
 
-export default function Chat({ me, peer, socket, getKey }) {
-  const [log, setLog] = useState([]) // {from, kind: 'text'|'image', text? , url?}
-  const [input, setInput] = useState('')
+export default function Chat({ me, peer, socket, getKey, isGroup=false }) {
+  const [text, setText] = useState('')
+  const [items, setItems] = useState([]) // lokální render historie
   const fileRef = useRef(null)
 
+  // Načti historii při mountu a když se změní peer
   useEffect(() => {
-    function onMessage(ev) {
-      const data = ev.detail
-    }
-  }, [])
+    setItems(getHistory(me, peer));
+  }, [me, peer]);
 
-  useEffect(() => {
-    function handle(data) {
-      if (data.type === 'message' && data.to === me && data.from === peer) {
-        receiveText(data.payload)
-      }
-      if (data.type === 'image' && data.to === me && data.from === peer) {
-        receiveImage(data.payload)
-      }
-    }
-    const listener = (ev) => handle(ev.detail)
-    window.addEventListener('ws-message', listener)
-    return () => window.removeEventListener('ws-message', listener)
-  }, [me, peer])
-
-  // Monkey-patch socket to dispatch events globally so multiple components can listen
-  useEffect(() => {
-    if (!socket) return
-    if (socket.__patched) return
-    socket.ws.addEventListener('message', (ev) => {
-      try {
-        const data = JSON.parse(ev.data)
-        const evt = new CustomEvent('ws-message', { detail: data })
-        window.dispatchEvent(evt)
-      } catch {}
-    })
-    socket.__patched = true
-  }, [socket])
-
-  async function receiveText({ cipher, iv }) {
-    try {
-      const key = getKey(peer)
-      const text = await decryptToString(cipher, iv, key)
-      setLog(l => [...l, { from: peer, kind: 'text', text }])
-    } catch (e) {
-      console.error('Decrypt text failed', e)
-    }
-  }
-
-  async function receiveImage({ cipher, iv }) {
-    try {
-      const key = getKey(peer)
-      const buf = await decryptToBytes(cipher, iv, key)
-      const blob = new Blob([buf])
-      const url = URL.createObjectURL(blob)
-      setLog(l => [...l, { from: peer, kind: 'image', url }])
-    } catch (e) {
-      console.error('Decrypt image failed', e)
-    }
+  function pushLocal(msg) {
+    appendHistory(me, peer, msg);
+    setItems(prev => [...prev, { t:Date.now(), ...msg }]);
   }
 
   async function sendText() {
-    if (!input) return
-    const key = getKey(peer)
-    const payload = await encryptString(input, key)
-    socket.send('message', { from: me, to: peer, payload })
-    setLog(l => [...l, { from: me, kind:'text', text: input }])
-    setInput('')
+    if (!text) return;
+    const payload = { type: isGroup ? 'group-message' : 'message',
+      ...(isGroup ? { group: peer.replace('group:',''), payload: { kind:'text', text } } :
+                    { to: peer, from: me, body: { kind:'text', text } })
+    };
+    socket?.send(JSON.stringify(payload));
+    pushLocal(isGroup ? { inbound:false, from: me, payload:{kind:'text', text} } :
+                        { inbound:false, to: peer, body:{kind:'text', text} });
+    setText('');
   }
 
   async function sendImage(file) {
-    if (!file) return
-    const buf = await file.arrayBuffer()
-    const key = getKey(peer)
-    const payload = await encryptBytes(buf, key)
-    socket.send('image', { from: me, to: peer, payload })
-    setLog(l => [...l, { from: me, kind:'image', url: URL.createObjectURL(file) }])
-    fileRef.current.value = ''
+    const buf = await file.arrayBuffer();
+    const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+    const payload = { type: isGroup ? 'group-message' : 'image',
+      ...(isGroup ? { group: peer.replace('group:',''), payload: { kind:'image', b64, name:file.name } } :
+                    { to: peer, from: me, body: { kind:'image', b64, name:file.name } })
+    };
+    socket?.send(JSON.stringify(payload));
+    pushLocal(isGroup ? { inbound:false, from: me, payload:{kind:'image', b64, name:file.name} } :
+                        { inbound:false, to: peer, body:{kind:'image', b64, name:file.name} });
   }
 
   return (
-    <div className="chatArea">
-      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-        <h3>Chat s {peer}</h3>
-      </div>
-      <div className="bubbles">
-        {log.map((m, i) => (
-          <div key={i} className={`bubble ${m.from===me?'me':''}`}>
-            {m.kind === 'text' ? (
-              <span>{m.text}</span>
-            ) : (
-              <img src={m.url} alt="img" style={{maxWidth:'100%', borderRadius:8}}/>
-            )}
+    <div style={{display:'grid', gap:8}}>
+      <div className="chatlog">
+        {items.map((m, i) => {
+          const inbound = m.inbound;
+          const data = m.payload || m.body;
+        return (
+          <div key={i} className={`bubble ${inbound?'in':'out'}`}>
+            {data?.kind === 'image'
+              ? <img alt={data.name||'img'} src={`data:image/*;base64,${data.b64}`} style={{maxWidth:'240px', borderRadius:8}}/>
+              : <span>{data?.text}</span>
+            }
           </div>
-        ))}
+        )})}
       </div>
-      <div className="toolbar">
-        <input className="input" placeholder="Napiš zprávu…" value={input}
-               onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&sendText()}/>
+
+      <div style={{display:'flex', gap:8}}>
+        <input className="input" placeholder="Napiš zprávu…" value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==='Enter'&&sendText()}/>
         <button className="button" onClick={sendText}>Odeslat</button>
-        <input type="file" className="file" accept="image/*" ref={fileRef}
-               onChange={e=>sendImage(e.target.files?.[0])}/>
+        <input ref={fileRef} type="file" accept="image/*" style={{display:'none'}} onChange={e=>e.target.files[0] && sendImage(e.target.files[0])}/>
+        <button className="button" onClick={()=>fileRef.current?.click()}>📷 Obrázek</button>
       </div>
     </div>
   )

@@ -116,14 +116,23 @@ wss.on('connection', (ws) => {
     }
 
     // --- CHAT 1:1 ---
-    if (type === 'message' || type === 'image') {
-      const { to } = msg;
-      const target = online.get(to);
-      if (target && target.ws && target.ws.readyState === 1) {
-        target.ws.send(JSON.stringify(msg));
-      }
-      return;
+   if (type === 'message' || type === 'image') {
+  const { to, from, payload } = msg;
+  const target = online.get(to);
+  if (target && target.ws && target.ws.readyState === 1) {
+    try {
+      target.ws.send(JSON.stringify({
+        type,
+        from,
+        to,
+        payload
+      }));
+    } catch (e) {
+      console.error("Send failed", e);
     }
+  }
+  return;
+}
 
     // --- SKUPINY ---
     if (type === 'create-group') {

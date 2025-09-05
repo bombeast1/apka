@@ -4,7 +4,7 @@ import { generateIdentity, deriveSharedKey } from './crypto.js'
 import Chat from './Chat.jsx'
 import VideoCall from './VideoCall.jsx'
 
-const WS_URL = (import.meta.env.VITE_WS_URL) || 'ws://localhost:8080'
+const WS_URL = (import.meta.env.VITE_WS_URL) || 'wss://apka-1.onrender.com'
 
 export default function App() {
   const [username, setUsername] = useState('')          // uložené jméno po přihlášení

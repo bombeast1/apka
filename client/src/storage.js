@@ -9,34 +9,30 @@ function write(obj) {
   localStorage.setItem(LS_KEY, JSON.stringify(obj));
 }
 
-export function saveAccount(username, hashed) {
+export function setLastLogin(name) {
   const db = read();
-  db.accounts = db.accounts || {};
-  db.accounts[username] = { hashed };
+  db.lastLogin = name;
   write(db);
 }
-export function getAccount(username) {
-  const db = read();
-  return db.accounts?.[username] || null;
-}
-export function setLastLogin(u) {
-  const db = read(); db.lastLogin = u; write(db);
-}
 export function getLastLogin() {
-  const db = read(); return db.lastLogin || '';
+  const db = read();
+  return db.lastLogin || '';
 }
 
+// Chat historie: klíč 'dm:<me>:<peer>' nebo 'group:<name>'
 export function appendHistory(me, peer, msg) {
   const db = read();
+  const key = peer.startsWith('group:') ? peer : `dm:${me}:${peer}`;
   db.history = db.history || {};
-  const key = `dm:${me}:${peer}`;
   db.history[key] = db.history[key] || [];
   db.history[key].push({ t: Date.now(), ...msg });
   write(db);
 }
+
 export function getHistory(me, peer) {
   const db = read();
-  return db.history?.[`dm:${me}:${peer}`] || [];
+  const key = peer.startsWith('group:') ? peer : `dm:${me}:${peer}`;
+  return db.history?.[key] || [];
 }
 
 export function saveGroups(list) {

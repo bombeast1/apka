@@ -1,3 +1,4 @@
+// client/src/crypto.js
 // Simple E2EE helpers using WebCrypto (ECDH P-256 -> AES-GCM 256)
 
 export async function generateIdentity() {
@@ -15,62 +16,49 @@ export async function importPeerPublicKey(jwk) {
     'jwk',
     jwk,
     { name: 'ECDH', namedCurve: 'P-256' },
-    false,
+    true,
     []
   );
 }
 
 export async function deriveSharedKey(privateKey, peerPublicJwk) {
   const peerPub = await importPeerPublicKey(peerPublicJwk);
-  const aesKey = await crypto.subtle.deriveKey(
+  return await crypto.subtle.deriveKey(
     { name: 'ECDH', public: peerPub },
     privateKey,
     { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt']
+    true,
+    ['encrypt','decrypt']
   );
-  return aesKey;
 }
 
-// --- Text encryption helpers ---
-
-export async function encryptString(plainText, aesKey) {
+export async function encryptJSON(sharedKey, obj) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const encoded = new TextEncoder().encode(plainText);
-  const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, encoded);
-  return { iv: bufToB64(iv.buffer), cipher: bufToB64(cipher) };
+  const data = new TextEncoder().encode(JSON.stringify(obj));
+  const cipher = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    sharedKey,
+    data
+  );
+  return { iv: bufToB64(iv), data: bufToB64(cipher) };
 }
 
-export async function decryptToString(cipherB64, ivB64, aesKey) {
-  const cipher = b64ToBuf(cipherB64);
-  const iv = new Uint8Array(b64ToBuf(ivB64));
-  const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, cipher);
-  return new TextDecoder().decode(plainBuf);
+export async function decryptJSON(sharedKey, payload) {
+  const iv = b64ToBuf(payload.iv);
+  const data = b64ToBuf(payload.data);
+  const plain = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: new Uint8Array(iv) },
+    sharedKey,
+    data
+  );
+  return JSON.parse(new TextDecoder().decode(plain));
 }
 
-// --- Binary (image) helpers ---
-
-export async function encryptBytes(arrayBuffer, aesKey) {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, arrayBuffer);
-  return { iv: bufToB64(iv.buffer), cipher: bufToB64(cipher) };
-}
-
-export async function decryptToBytes(cipherB64, ivB64, aesKey) {
-  const cipher = b64ToBuf(cipherB64);
-  const iv = new Uint8Array(b64ToBuf(ivB64));
-  const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, cipher);
-  return plainBuf;
-}
-
-// --- Base64 helpers for ArrayBuffer ---
-
-export function bufToB64(buffer) {
+export function bufToB64(buf) {
+  const bytes = new Uint8Array(buf);
   let binary = '';
-  const bytes = new Uint8Array(buffer);
-  const len = bytes.byteLength;
   const chunk = 0x8000;
-  for (let i = 0; i < len; i += chunk) {
+  for (let i = 0; i < bytes.length; i += chunk) {
     const sub = bytes.subarray(i, i + chunk);
     binary += String.fromCharCode.apply(null, sub);
   }

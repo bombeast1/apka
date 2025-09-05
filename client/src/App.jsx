@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { createSocket } from './ws.js'
 import { generateIdentity, deriveSharedKey } from './crypto.js'
 import Chat from './Chat.jsx'
@@ -9,111 +9,120 @@ const WS_URL = (import.meta.env.VITE_WS_URL) || 'wss://apka-1.onrender.com'
 
 export default function App() {
   // AUTH
-  const [stage, setStage] = useState('auth') // 'auth' | 'app'
+  const [stage, setStage] = useState('auth')
   const [loginName, setLoginName] = useState(getLastLogin())
   const [loginPass, setLoginPass] = useState('')
   const [username, setUsername] = useState('')
+
   // CRYPTO
   const [me, setMe] = useState(null) // { privateKey, publicKeyJwk }
-  // ONLINE
+
+  // ONLINE + GROUPS
   const [users, setUsers] = useState([]) // [{username, publicKeyJwk}]
-  // GROUPS
-  const [groups, setGroups] = useState(loadGroups()) // lokální snapshot
-  const [activePeer, setActivePeer] = useState(null) // username nebo "group:xxx"
-  const [sharedKeys, setSharedKeys] = useState(new Map()) // peer -> CryptoKey
+  const [groups, setGroups] = useState(loadGroups()) // [{name, members:[]}]
+  const [activePeer, setActivePeer] = useState(null) // 'bob' nebo 'group:team'
+
+  // Keys cache: peer -> CryptoKey
+  const [sharedKeys] = useState(new Map())
 
   const socketRef = useRef(null)
 
-  useEffect(() => {
-    (async () => setMe(await generateIdentity()))()
-  }, [])
+  useEffect(() => { (async () => { const id = await generateIdentity(); setMe(id); })(); }, [])
 
   function ensureSocket() {
-    if (socketRef.current && socketRef.current.readyState === 1) return socketRef.current;
-    const s = createSocket(WS_URL, onMessage);
-    socketRef.current = s;
-    return s;
-  }
-
-  // --- AUTH (demo) ---
-  function registerAccount() {
-    const s = ensureSocket();
-    s.sendJSON({ type:'registerAccount', username: loginName.trim(), password: loginPass });
-  }
-  function login() {
-    const s = ensureSocket();
-    s.sendJSON({ type:'login', username: loginName.trim(), password: loginPass, publicKeyJwk: me?.publicKeyJwk || null });
+    if (socketRef.current && socketRef.current.readyState === 1) return socketRef.current
+    const ws = createSocket(WS_URL, onMessage)
+    socketRef.current = ws
+    return ws
   }
 
   function onMessage(data) {
-    if (data.type === 'auth') {
-      if (data.phase === 'register') {
-        // registrace ok/ne
-        if (data.ok) {
-          // po registraci hned login
-          login();
-        } else {
-          alert('Registrace selhala: ' + (data.reason || ''));
-        }
-      }
-      if (data.phase === 'login') {
-        if (data.ok) {
-          setUsername(data.username);
-          setStage('app');
-          setLastLogin(data.username);
-        } else {
-          alert('Špatné přihlášení');
-        }
-      }
-      return;
-    }
-
     if (data.type === 'users') {
-      // když ještě neznáme username, nic nefiltruj
-      setUsers(prev => (username ? data.users.filter(u => u.username !== username) : data.users));
-      return;
+      // odfiltruj sám sebe
+      setUsers((data.users || []).filter(u => u.username !== username))
+      return
     }
-
     if (data.type === 'groups') {
-      setGroups(data.groups);
-      saveGroups(data.groups);
-      return;
+      saveGroups(data.groups || [])
+      setGroups(data.groups || [])
+      return
     }
-
+    if (data.type === 'auth' && data.phase === 'login') {
+      if (data.ok) {
+        setUsername(data.username)
+        setStage('app')
+        setLastLogin(data.username)
+        // po loginu doplníme svůj public key pro E2EE
+        ensureSocket().sendJSON({ type:'updatePublicKey', publicKeyJwk: me?.publicKeyJwk })
+      }
+      return
+    }
+    // přijaté zprávy (DM i group payload přes server)
     if (data.type === 'message' || data.type === 'image') {
-      // DM zpráva – uložit historii
-      appendHistory(data.to === username ? data.from : username, data.to === username ? data.from : data.to, { inbound:true, ...data });
-      return;
+      const from = data.from
+      const to = data.to
+      if (to !== username) return
+      // dešifrovat
+      decryptAndStore(from, data.payload)
+      return
     }
-
     if (data.type === 'group-message') {
-      // pro jednoduchost uložíme pod „peer“ = název skupiny
-      appendHistory(username, `group:${data.group}`, { inbound:true, from:data.from, payload:data.payload });
-      return;
+      const from = data.from
+      const group = data.group
+      appendHistory(username, 'group:'+group, { from, to:'group:'+group, inbound:true, data:data.payload })
+      return
     }
-
-    // Signaling přebírá VideoCall komponenta (předáme socketRef)
   }
 
-  async function openChatWith(peerName) {
-    if (peerName.startsWith('group:')) {
-      setActivePeer(peerName); // skupiny E2EE si můžeš řešit sdíleným group klíčem (na později)
-      return;
+  async function decryptAndStore(from, payload) {
+    try {
+      const key = await getKey(from)
+      const clear = await (await import('./crypto.js')).decryptJSON(key, payload)
+      appendHistory(username, from, { from, to:username, inbound:true, data: clear })
+      // pokud zrovna koukám na ten chat, přerenderuje se Chat sám z localStorage při změně peer
+    } catch (e) {
+      console.warn('decrypt fail', e)
     }
-    const peer = users.find(u => u.username === peerName);
-    if (!peer) return;
-    if (!sharedKeys.has(peerName)) {
-      const key = await deriveSharedKey(me.privateKey, peer.publicKeyJwk);
-      setSharedKeys(new Map(sharedKeys.set(peerName, key)));
-    }
-    setActivePeer(peerName);
   }
 
+  async function getKey(peerName) {
+    if (sharedKeys.has(peerName)) return sharedKeys.get(peerName)
+    const peer = users.find(u => u.username === peerName) || { publicKeyJwk: null }
+    if (!peer.publicKeyJwk || !me?.privateKey) throw new Error('Missing keys')
+    const key = await deriveSharedKey(me.privateKey, peer.publicKeyJwk)
+    sharedKeys.set(peerName, key)
+    return key
+  }
+
+  // --- AUTH actions ---
+  function login() {
+    const uname = (loginName || '').trim()
+    if (!uname || !loginPass || !me) return
+    const s = ensureSocket()
+    s.sendJSON({ type:'login', username: uname, password: loginPass, publicKeyJwk: me.publicKeyJwk })
+  }
+  function registerAccount() {
+    const uname = (loginName || '').trim()
+    if (!uname || !loginPass) return
+    const s = ensureSocket()
+    s.sendJSON({ type:'registerAccount', username: uname, password: loginPass })
+  }
   function logout() {
     try { socketRef.current?.sendJSON({ type:'logout' }) } catch {}
-    setStage('auth');
-    setUsername('');
-    setActivePeer(null);
+    setStage('auth'); setUsername(''); setActivePeer(null)
+  }
+
+  // --- UI helpers ---
+  function openDM(peerName) {
+    if (!peerName) return
+    setActivePeer(peerName)
+  }
+  function openGroup(name) {
+    setActivePeer('group:'+name)
+  }
+  function getGroupMembers(name) {
+    const g = groups.find(g => g.name === name)
+    return g ? g.members : []
   }
 
   if (stage === 'auth') {
@@ -122,46 +131,46 @@ export default function App() {
         <div className="card" style={{display:'grid', gap:12, maxWidth:420, margin:'40px auto'}}>
           <h2>🔐 Přihlášení / Registrace</h2>
           <input className="input" placeholder="Uživatelské jméno" value={loginName} onChange={e=>setLoginName(e.target.value.trim())}/>
-          <input className="input" type="password" placeholder="Heslo" value={loginPass} onChange={e=>setLoginPass(e.target.value)} />
+          <input className="input" type="password" placeholder="Heslo" value={loginPass} onChange={e=>setLoginPass(e.target.value)}/>
           <div style={{display:'flex', gap:8}}>
             <button className="button" disabled={!loginName || !loginPass || !me} onClick={login}>Přihlásit</button>
-            <button className="button" disabled={!loginName || !loginPass || !me} onClick={registerAccount}>Registrovat</button>
+            <button className="button" disabled={!loginName || !loginPass} onClick={registerAccount}>Registrovat</button>
           </div>
           {!me && <small>Generuji lokální klíče…</small>}
         </div>
       </div>
-    );
+    )
   }
 
   // stage === 'app'
-  const myDMs = users.map(u => u.username);
-  const myGroups = groups.map(g => `group:${g.name}`);
+  const myDMs = users.map(u => u.username)
 
   return (
     <div className="container">
       <div className="card">
         <div className="row">
-          <aside className="card" style={{minWidth:280}}>
+          <aside className="card" style={{minWidth:260}}>
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-              <h3>{username} · Uživatelé</h3>
+              <h3>Uživatelé</h3>
               <button className="button" onClick={logout}>Odhlásit</button>
             </div>
 
             <div className="list">
-              {myDMs.length === 0 && <div className="badge">Nikdo není online</div>}
-              {myDMs.map(u => (
-                <div key={u} className="user" onClick={()=>openChatWith(u)}>
-                  <div><strong>{u}</strong><div className="badge">E2EE připraveno</div></div>
-                  <div>💬📹</div>
+              {users.length === 0 && <div className="badge">Nikdo není online</div>}
+              {users.map(u => (
+                <div key={u.username} className="user" onClick={()=>openDM(u.username)}>
+                  <div><strong>{u.username}</strong><div className="badge">E2EE</div></div>
+                  <div>💬📞</div>
                 </div>
               ))}
             </div>
 
-            <h4 style={{marginTop:16}}>Skupiny</h4>
+            <h3>Skupiny</h3>
             <div className="list">
-              {myGroups.map(g => (
-                <div key={g} className="user" onClick={()=>setActivePeer(g)}>
-                  <div><strong>{g.replace('group:','')}</strong><div className="badge">Skupina</div></div>
+              {groups.length === 0 && <div className="badge">Zatím žádné skupiny</div>}
+              {groups.map(g => (
+                <div key={g.name} className="user" onClick={()=>openGroup(g.name)}>
+                  <div><strong>{g.name}</strong><div className="badge">{g.members.length} členů</div></div>
                   <div>💬</div>
                 </div>
               ))}
@@ -176,14 +185,15 @@ export default function App() {
             ) : activePeer.startsWith('group:') ? (
               <Chat
                 me={username}
-                peer={activePeer}             // „group:xyz“
+                peer={activePeer}
                 socket={socketRef.current}
-                getKey={()=>null}             // (jednoduše – group E2EE může být až další krok)
-                isGroup
+                getKey={getKey}
+                isGroup={true}
+                getGroupMembers={getGroupMembers}
               />
             ) : (
               <Tabs
-                chat={<Chat me={username} peer={activePeer} socket={socketRef.current} getKey={(p)=>sharedKeys.get(p)} />}
+                chat={<Chat me={username} peer={activePeer} socket={socketRef.current} getKey={getKey} />}
                 video={<VideoCall me={username} peer={activePeer} socket={socketRef.current} />}
               />
             )}
@@ -200,7 +210,7 @@ function Tabs({ chat, video }) {
     <div>
       <div className="tabs">
         <div className={`tab ${tab==='chat'?'active':''}`} onClick={()=>setTab('chat')}>Chat</div>
-        <div className={`tab ${tab==='video'?'active':''}`} onClick={()=>setTab('video')}>Video/Audio</div>
+        <div className={`tab ${tab==='video'?'active':''}`} onClick={()=>setTab('video')}>Hovor</div>
       </div>
       {tab === 'chat' ? chat : video}
     </div>

@@ -168,8 +168,8 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    // --- WebRTC SIGNALIZACE ---
-    if (['call-offer','call-answer','ice-candidate','hangup'].includes(type)) {
+    // --- WebRTC SIGNALIZACE + vyzvánění ---
+    if (['call-offer','call-answer','ice-candidate','hangup','ring','ring-stop'].includes(type)) {
       const { to } = msg;
       const target = online.get(to);
       if (target && target.ws && target.ws.readyState === 1) {
@@ -190,4 +190,3 @@ wss.on('connection', (ws) => {
 server.listen(PORT, () => {
   console.log('✅ WS signaling server listening on :' + PORT);
 });
-

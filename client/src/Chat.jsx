@@ -1,59 +1,77 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { appendHistory, getHistory } from './storage.js'
+import { encryptJSON, decryptJSON } from './crypto.js'
 
-export default function Chat({ me, peer, socket, getKey, isGroup=false }) {
+export default function Chat({ me, peer, socket, getKey, isGroup=false, getGroupMembers }) {
   const [text, setText] = useState('')
-  const [items, setItems] = useState([]) // lokální render historie
+  const [items, setItems] = useState([])
   const fileRef = useRef(null)
 
-  // Načti historii při mountu a když se změní peer
+  // načtení historie
   useEffect(() => {
     setItems(getHistory(me, peer));
   }, [me, peer]);
 
   function pushLocal(msg) {
     appendHistory(me, peer, msg);
-    setItems(prev => [...prev, { t:Date.now(), ...msg }]);
+    setItems(prev => [...prev, { t: Date.now(), ...msg }]);
   }
 
   async function sendText() {
-    if (!text) return;
-    const payload = { type: isGroup ? 'group-message' : 'message',
-      ...(isGroup ? { group: peer.replace('group:',''), payload: { kind:'text', text } } :
-                    { to: peer, from: me, body: { kind:'text', text } })
-    };
-    socket?.send(JSON.stringify(payload));
-    pushLocal(isGroup ? { inbound:false, from: me, payload:{kind:'text', text} } :
-                        { inbound:false, to: peer, body:{kind:'text', text} });
+    if (!text.trim()) return;
+    if (isGroup) {
+      const members = (getGroupMembers?.(peer.replace('group:', '')) || []).filter(u => u !== me);
+      for (const m of members) {
+        const key = await getKey(m);
+        const payload = await encryptJSON(key, { kind:'text', text });
+        socket?.sendJSON({ type:'message', to: m, from: me, payload });
+      }
+      pushLocal({ from: me, to: peer, inbound:false, data:{ kind:'text', text } });
+    } else {
+      const key = await getKey(peer);
+      const payload = await encryptJSON(key, { kind:'text', text });
+      socket?.sendJSON({ type:'message', to: peer, from: me, payload });
+      pushLocal({ from: me, to: peer, inbound:false, data:{ kind:'text', text } });
+    }
     setText('');
   }
 
   async function sendImage(file) {
-    const buf = await file.arrayBuffer();
-    const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-    const payload = { type: isGroup ? 'group-message' : 'image',
-      ...(isGroup ? { group: peer.replace('group:',''), payload: { kind:'image', b64, name:file.name } } :
-                    { to: peer, from: me, body: { kind:'image', b64, name:file.name } })
-    };
-    socket?.send(JSON.stringify(payload));
-    pushLocal(isGroup ? { inbound:false, from: me, payload:{kind:'image', b64, name:file.name} } :
-                        { inbound:false, to: peer, body:{kind:'image', b64, name:file.name} });
+    const arr = await file.arrayBuffer();
+    const b64 = btoa(String.fromCharCode(...new Uint8Array(arr)));
+    if (isGroup) {
+      const members = (getGroupMembers?.(peer.replace('group:', '')) || []).filter(u => u !== me);
+      for (const m of members) {
+        const key = await getKey(m);
+        const payload = await encryptJSON(key, { kind:'image', name:file.name, b64 });
+        socket?.sendJSON({ type:'image', to: m, from: me, payload });
+      }
+      pushLocal({ from: me, to: peer, inbound:false, data:{ kind:'image', name:file.name, b64 } });
+    } else {
+      const key = await getKey(peer);
+      const payload = await encryptJSON(key, { kind:'image', name:file.name, b64 });
+      socket?.sendJSON({ type:'image', to: peer, from: me, payload });
+      pushLocal({ from: me, to: peer, inbound:false, data:{ kind:'image', name:file.name, b64 } });
+    }
   }
 
   return (
-    <div style={{display:'grid', gap:8}}>
-      <div className="chatlog">
-        {items.map((m, i) => {
-          const inbound = m.inbound;
-          const data = m.payload || m.body;
-        return (
-          <div key={i} className={`bubble ${inbound?'in':'out'}`}>
-            {data?.kind === 'image'
-              ? <img alt={data.name||'img'} src={`data:image/*;base64,${data.b64}`} style={{maxWidth:'240px', borderRadius:8}}/>
-              : <span>{data?.text}</span>
-            }
-          </div>
-        )})}
+    <div style={{display:'grid', gap:12}}>
+      <div className="messages">
+        {items.map((msg, idx) => {
+          const inbound = !!msg.inbound;
+          const data = msg.data;
+          return (
+            <div key={idx} className={`row ${inbound?'left':'right'}`}>
+              <div className={`bubble ${inbound?'in':'out'}`}>
+                {data?.kind === 'image'
+                  ? <img alt={data.name||'img'} src={`data:image/*;base64,${data.b64}`} style={{maxWidth:'240px', borderRadius:8}}/>
+                  : <span>{data?.text}</span>
+                }
+              </div>
+            </div>
+          )
+        })}
       </div>
 
       <div style={{display:'flex', gap:8}}>
@@ -65,3 +83,4 @@ export default function Chat({ me, peer, socket, getKey, isGroup=false }) {
     </div>
   )
 }
+

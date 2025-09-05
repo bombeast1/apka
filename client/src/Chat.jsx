@@ -27,10 +27,14 @@ export default function Chat({ me, peer, socket, getKey, isGroup=false, getGroup
         socket?.sendJSON({ type:'message', to: m, from: me, payload });
       }
       pushLocal({ from: me, to: peer, inbound:false, data:{ kind:'text', text } });
+
+      
     } else {
       const key = await getKey(peer);
       const payload = await encryptJSON(key, { kind:'text', text });
-      socket?.sendJSON({ type:'message', to: peer, from: me, payload });
+      // místo peer pošli čistý identifikátor
+const target = isGroup ? peer.replace('group:', '') : peer;
+socket?.sendJSON({ type:'message', to: target, from: me, payload });
       pushLocal({ from: me, to: peer, inbound:false, data:{ kind:'text', text } });
     }
     setText('');

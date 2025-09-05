@@ -118,24 +118,28 @@ wss.on('connection', (ws) => {
     // --- CHAT 1:1 ---
   if (type === 'message' || type === 'image') {
   const { to, from, payload } = msg;
-  const target = online.get(to);
-  if (target && target.ws && target.ws.readyState === 1) {
-    try {
-      target.ws.send(JSON.stringify({
-        type,
-        from,
-        to,
-        payload
-      }));
-      console.log(`📩 Forwarded ${type} from ${from} to ${to}`);
-    } catch (e) {
-      console.error("Send failed", e);
+
+  // 1:1 chat
+  if (online.has(to)) {
+    const target = online.get(to);
+    if (target?.ws?.readyState === 1) {
+      target.ws.send(JSON.stringify({ type, from, to, payload }));
     }
-  } else {
-    console.log(`❌ Target ${to} not online`);
+  }
+
+  // Skupina
+  if (groups.has(to)) {
+    for (const member of groups.get(to)) {
+      if (member === from) continue; // neposílej zpět
+      const target = online.get(member);
+      if (target?.ws?.readyState === 1) {
+        target.ws.send(JSON.stringify({ type, from, to, payload }));
+      }
+    }
   }
   return;
 }
+
 
 
     // --- SKUPINY ---

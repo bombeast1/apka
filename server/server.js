@@ -18,11 +18,13 @@ function broadcastUsers() {
     username: name,
     publicKeyJwk: info.publicKeyJwk
   }));
+  console.log("Aktuální seznam uživatelů:", list); // 🔥 DEBUG
   const payload = JSON.stringify({ type: 'users', users: list });
   for (const [, info] of users) {
     try { info.ws.send(payload); } catch {}
   }
 }
+
 
 const wss = new WebSocketServer({ server });
 

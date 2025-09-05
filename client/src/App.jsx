@@ -32,11 +32,15 @@ export default function App() {
   }
 
   function onMessage(data) {
-    if (data.type === 'users') {
-      // odeber sebe z listu
+  if (data.type === 'users') {
+    if (username) {
       setUsers(data.users.filter(u => u.username !== username))
+    } else {
+      setUsers(data.users) 
     }
   }
+}
+
 
   async function openChatWith(peerName) {
     const peer = users.find(u => u.username === peerName)

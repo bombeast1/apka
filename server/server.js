@@ -116,7 +116,7 @@ wss.on('connection', (ws) => {
     }
 
     // --- CHAT 1:1 ---
-   if (type === 'message' || type === 'image') {
+  if (type === 'message' || type === 'image') {
   const { to, from, payload } = msg;
   const target = online.get(to);
   if (target && target.ws && target.ws.readyState === 1) {
@@ -127,12 +127,16 @@ wss.on('connection', (ws) => {
         to,
         payload
       }));
+      console.log(`📩 Forwarded ${type} from ${from} to ${to}`);
     } catch (e) {
       console.error("Send failed", e);
     }
+  } else {
+    console.log(`❌ Target ${to} not online`);
   }
   return;
 }
+
 
     // --- SKUPINY ---
     if (type === 'create-group') {

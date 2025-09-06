@@ -105,27 +105,33 @@ wss.on('connection', (ws) => {
     }
 
     if (['message','image','call-offer','call-answer','ice-candidate','hangup'].includes(type)) {
-      const { to, from, payload } = msg
-      console.log("📩 Server received:", msg)
+  const { to, from, payload } = msg;
+  console.log("📩 Server received:", msg);
 
-      if (online.has(to)) {
-        const target = online.get(to)
-        if (target?.ws?.readyState === 1) {
-          target.ws.send(JSON.stringify({ type, from, to, payload }))
-        }
-      }
+  const senderInfo = online.get(from);
+  const fromKey = senderInfo?.publicKeyJwk || null;
 
-      if (groups.has(to)) {
-        for (const member of groups.get(to)) {
-          if (member === from) continue
-          const target = online.get(member)
-          if (target?.ws?.readyState === 1) {
-            target.ws.send(JSON.stringify({ type, from, to, payload }))
-          }
-        }
-      }
-      return
+  // DM
+  if (online.has(to)) {
+    const target = online.get(to);
+    if (target?.ws?.readyState === 1) {
+      target.ws.send(JSON.stringify({ type, from, to, payload, fromKey }));
     }
+  }
+
+  // Group fan-out (pokud `to` je jméno skupiny)
+  if (groups.has(to)) {
+    for (const member of groups.get(to)) {
+      if (member === from) continue;
+      const target = online.get(member);
+      if (target?.ws?.readyState === 1) {
+        target.ws.send(JSON.stringify({ type, from, to, payload, fromKey }));
+      }
+    }
+  }
+  return;
+}
+
 
     if (type === 'create-group') {
       const g = String(msg.name || '').trim()

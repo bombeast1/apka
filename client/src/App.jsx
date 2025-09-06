@@ -74,43 +74,49 @@ export default function App() {
     // 📩 příchozí zprávy (DM i group)
     if (data.type === 'message' || data.type === 'image') {
       const { from, payload } = data
-      decryptAndStore(from, payload)
+       decryptAndStore(from, payload, fromKey);
       return
     }
   }
 
   // 🔑 decrypt + save
-  async function decryptAndStore(from, payload) {
-    try {
-      const key = await getKey(from)
-      const clear = await (await import('./crypto.js')).decryptJSON(key, payload)
+ async function decryptAndStore(from, payload, fromKey) {
+  try {
+    const key = await getKey(from, fromKey); // <— předáváme fromKey
+    const clear = await (await import('./crypto.js')).decryptJSON(key, payload);
 
-      // group vs. DM
-      const peer = clear?.group ? `group:${clear.group}` : from
+    // DM vs. group: pokud je ve zprávě `group`, ulož pod "group:<name>"
+    const peerId = clear?.group ? `group:${clear.group}` : from;
 
-      appendHistory(username, peer, {
-        from,
-        to: peer,
-        inbound: true,
-        data: clear
-      })
+    appendHistory(username, peerId, {
+      from,
+      to: peerId,
+      inbound: true,
+      data: clear
+    });
 
-      setHistoryTick(t => t + 1)
-    } catch (e) {
-      console.warn('decrypt fail', e)
-    }
+    setHistoryTick(t => t + 1);
+  } catch (e) {
+    console.warn('decrypt fail', e);
   }
+}
 
-  async function getKey(peerName) {
-    if (sharedKeys.has(peerName)) return sharedKeys.get(peerName)
 
-    const peer = users.find(u => u.username === peerName)
-    if (!peer?.publicKeyJwk || !me?.privateKey) throw new Error('Missing keys')
+ async function getKey(peerName, overrideJwk) {
+  if (sharedKeys.has(peerName)) return sharedKeys.get(peerName);
 
-    const key = await deriveSharedKey(me.privateKey, peer.publicKeyJwk)
-    sharedKeys.set(peerName, key)
-    return key
-  }
+  // 1) zkus najít v users
+  let peer = users.find(u => u.username === peerName);
+
+  // 2) pokud není v users nebo nemá klíč, zkus override z přijaté zprávy
+  const publicKeyJwk = peer?.publicKeyJwk || overrideJwk;
+  if (!publicKeyJwk || !me?.privateKey) throw new Error('Missing keys');
+
+  const key = await deriveSharedKey(me.privateKey, publicKeyJwk);
+  sharedKeys.set(peerName, key);
+  return key;
+}
+
 
   // --- AUTH actions ---
   function login() {

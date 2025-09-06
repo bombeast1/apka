@@ -39,7 +39,7 @@ export default function App() {
 
 function onMessage(data) {
   console.log("Received WS message:", data);
-
+  
   // 📌 přihlášení / registrace
   if (data.type === "auth") {
     if (data.ok && data.phase === "login") {
@@ -51,7 +51,12 @@ function onMessage(data) {
     }
     return;
   }
-
+if (data.type === "auth" && data.phase === "login" && data.ok) {
+    setUsername(data.username);   // ✅ uložíme jméno přihlášeného
+    setStage("app");
+    setLastLogin(data.username);
+    return;
+  }
   // 📌 seznam online uživatelů
   if (data.type === "users") {
     setUsers(data.users || []);

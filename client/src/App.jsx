@@ -37,57 +37,40 @@ export default function App() {
     return ws
   }
 
-  function onMessage(data) {
-    console.log("📥 Received WS message:", data);
+ function onMessage(data) {
+  console.log("Received WS message:", data);
 
-    if (data.type === 'users') {
-      // odfiltruj mě
-      if (username) setUsers((data.users || []).filter(u => u.username !== username))
-      else setUsers(data.users || [])
-      return
-    }
+  // 📌 seznam skupin
+  if (data.type === "groups") {
+    // uložíme do state, ať se zobrazí v UI
+    setGroups(data.groups || []);
+    return;
+  }
 
-    if (data.type === 'groups') {
-      saveGroups(data.groups || [])
-      setGroups(data.groups || [])
-      return
-    }
+  // 📌 příchozí zprávy (DM i group)
+  if (
+    data.type === "message" ||
+    data.type === "image" ||
+    data.type === "group-message"
+  ) {
+    const from = data.from;
+    const payload = data.payload;
+    const fromKey = data.fromKey || null;
 
-    if (data.type === 'auth' && data.phase === 'login') {
-      if (data.ok) {
-        setUsername(data.username)
-        setStage('app')
-        setLastLogin(data.username)
+    // pro group zprávu peer = "group:<název>"
+    const peer =
+      data.type === "group-message" && data.group
+        ? `group:${String(data.group)}`
+        : from;
 
-        // po loginu doplníme svůj public key
-        const pushKey = () => ensureSocket().sendJSON({ type:'updatePublicKey', publicKeyJwk: me?.publicKeyJwk })
-        if (me?.publicKeyJwk) pushKey()
-        else {
-          const check = setInterval(() => {
-            if (me?.publicKeyJwk) { pushKey(); clearInterval(check) }
-          }, 500)
-        }
-      }
-      return
-    }
+    decryptAndStore(peer, payload, fromKey);
+    return;
+  }
 
-  
-    // 📩 příchozí zprávy (DM i group)
-if (data.type === 'message' || data.type === 'image' || data.type === 'group-message') {
-  // Pro group-message nastavíme peer jako "group:<groupName>", jinak peer = from
-  const from = data.from;
-  const payload = data.payload;
-  const fromKey = data.fromKey || null; // bezpečně nastav default
-
-  // pokud jde o group-message, uložíme pod peer jménem "group:<groupName>"
-  const peer = (data.type === 'group-message' && data.group) ? `group:${String(data.group)}` : from;
-
-  decryptAndStore(peer, payload, fromKey);
-  return;
+  // 📌 fallback - pro debug
+  console.warn("Unhandled WS message type:", data.type, data);
 }
 
-
-  }
 
   // 🔑 decrypt + save
  async function decryptAndStore(from, payload, fromKey) {

@@ -82,27 +82,33 @@ export default function App() {
     const to = data.to;
 
     if (to === username) {
-      decryptAndStore(from, data.payload);
+      // zpráva je pro mě
+      decryptAndStore(from, data.payload, to);
     }
 
     if (groups.some(g => g.name === to && g.members.includes(username))) {
-      decryptAndStore(from, data.payload);
+      // skupinová zpráva
+      decryptAndStore(from, data.payload, to);
     }
     return;
   }
 }
 
-
-  async function decryptAndStore(from, payload) {
+  // 👇 UPRAVENO: přidán parametr `peer`
+  async function decryptAndStore(from, payload, peer) {
     try {
-      const key = await getKey(from)
-      const clear = await (await import('./crypto.js')).decryptJSON(key, payload)
-      appendHistory(username, from, { from, to:username, inbound:true, data: clear })
-      setHistoryTick(t => t + 1)
+      const key = await getKey(from);
+      const clear = await (await import('./crypto.js')).decryptJSON(key, payload);
+
+      // 👇 teď ukládáme správně (me, peer)
+      appendHistory(username, peer || from, { from, to: peer || username, inbound: true, data: clear });
+
+      setHistoryTick(t => t + 1);
     } catch (e) {
-      console.warn('decrypt fail', e)
+      console.warn('decrypt fail', e);
     }
   }
+
 
   async function getKey(peerName) {
     if (sharedKeys.has(peerName)) return sharedKeys.get(peerName)

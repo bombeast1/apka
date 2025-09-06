@@ -94,25 +94,7 @@ function onMessage(data) {
   }
 }
 
-// ✅ jen jedna verze funkce
-async function decryptAndStore(from, payload, peer) {
-  try {
-    const key = await getKey(from);
-    const clear = await (await import('./crypto.js')).decryptJSON(key, payload);
 
-    // ukládáme jako (me, peer)
-    appendHistory(username, peer, {
-      from,
-      to: peer,
-      inbound: true,
-      data: clear
-    });
-
-    setHistoryTick(t => t + 1);
-  } catch (e) {
-    console.warn('decrypt fail', e);
-  }
-}
 
 
   // 👇 UPRAVENO: přidán parametr `peer`

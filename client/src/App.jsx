@@ -38,41 +38,56 @@ export default function App() {
   }
 
   function onMessage(data) {
-    console.log("📥 Received WS message:", data);
-    if (data.type === 'groups') {
-      saveGroups(data.groups || [])
-      setGroups(data.groups || [])
-      return
-    }
-    if (data.type === 'auth' && data.phase === 'login') {
-      if (data.ok) {
-        setUsername(data.username)
-        setStage('app')
-        setLastLogin(data.username)
-        // po loginu doplníme svůj public key pro E2EE
-        ensureSocket().sendJSON({ type:'updatePublicKey', publicKeyJwk: me?.publicKeyJwk })
+  console.log("📥 Received WS message:", data);
+
+  if (data.type === 'users') {
+    // odfiltruj sám sebe
+    setUsers((data.users || []).filter(u => u.username !== username));
+    return;
+  }
+
+  if (data.type === 'groups') {
+    saveGroups(data.groups || [])
+    setGroups(data.groups || [])
+    return
+  }
+
+  if (data.type === 'auth' && data.phase === 'login') {
+    if (data.ok) {
+      setUsername(data.username)
+      setStage('app')
+      setLastLogin(data.username)
+
+      // po loginu doplníme svůj public key pro E2EE
+      if (me?.publicKeyJwk) {
+        ensureSocket().sendJSON({ type:'updatePublicKey', publicKeyJwk: me.publicKeyJwk })
+      } else {
+        const check = setInterval(() => {
+          if (me?.publicKeyJwk) {
+            ensureSocket().sendJSON({ type:'updatePublicKey', publicKeyJwk: me.publicKeyJwk })
+            clearInterval(check)
+          }
+        }, 500)
       }
-      return
     }
-    // přijaté zprávy (DM i group payload přes server)
-    if (data.type === 'message' || data.type === 'image') {
-  const from = data.from;
-  const to = data.to;
-
-  // DM zprávy (pro mě)
-  if (to === username) {
-    decryptAndStore(from, data.payload);
+    return
   }
 
-  // Group zprávy (pokud jsem členem)
-  if (groups.some(g => g.name === to && g.members.includes(username))) {
-    decryptAndStore(from, data.payload);
+  if (data.type === 'message' || data.type === 'image') {
+    const from = data.from;
+    const to = data.to;
+
+    if (to === username) {
+      decryptAndStore(from, data.payload);
+    }
+
+    if (groups.some(g => g.name === to && g.members.includes(username))) {
+      decryptAndStore(from, data.payload);
+    }
+    return;
   }
-  return;
 }
 
-    // group-message: not used in current fan-out model
-  }
 
   async function decryptAndStore(from, payload) {
     try {

@@ -116,10 +116,10 @@ wss.on('connection', (ws) => {
     }
 
     // --- CHAT 1:1 ---
-  if (type === 'message' || type === 'image') {
+  if (type === 'message' || type === 'image' || type === 'call-offer' || type === 'call-answer' || type === 'ice-candidate' || type === 'hangup') {
   const { to, from, payload } = msg;
 
-  // 1:1 chat
+  // 1:1 chat nebo hovor
   if (online.has(to)) {
     const target = online.get(to);
     if (target?.ws?.readyState === 1) {
@@ -127,10 +127,10 @@ wss.on('connection', (ws) => {
     }
   }
 
-  // Skupina
+  // Skupiny (volitelné – jen pokud chceš group chat/hovor)
   if (groups.has(to)) {
     for (const member of groups.get(to)) {
-      if (member === from) continue; // neposílej zpět
+      if (member === from) continue;
       const target = online.get(member);
       if (target?.ws?.readyState === 1) {
         target.ws.send(JSON.stringify({ type, from, to, payload }));
@@ -139,6 +139,7 @@ wss.on('connection', (ws) => {
   }
   return;
 }
+
 
 
 

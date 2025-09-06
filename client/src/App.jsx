@@ -60,13 +60,21 @@ export default function App() {
     }
     // přijaté zprávy (DM i group payload přes server)
     if (data.type === 'message' || data.type === 'image') {
-      const from = data.from
-      const to = data.to
-      if (to !== username) return
-      // dešifrovat
-      decryptAndStore(from, data.payload)
-      return
-    }
+  const from = data.from;
+  const to = data.to;
+
+  // DM zprávy (pro mě)
+  if (to === username) {
+    decryptAndStore(from, data.payload);
+  }
+
+  // Group zprávy (pokud jsem členem)
+  if (groups.some(g => g.name === to && g.members.includes(username))) {
+    decryptAndStore(from, data.payload);
+  }
+  return;
+}
+
     // group-message: not used in current fan-out model
   }
 

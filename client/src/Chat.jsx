@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { appendHistory, getHistory } from './storage.js'
-import { encryptJSON, decryptJSON } from './crypto.js'
+import { encryptJSON } from './crypto.js'
 
 export default function Chat({ me, peer, socket, getKey, isGroup=false, getGroupMembers, tick=0 }) {
   const [text, setText] = useState('')
@@ -18,32 +18,50 @@ export default function Chat({ me, peer, socket, getKey, isGroup=false, getGroup
   }
 
   async function sendText() {
-  if (!text.trim()) return;
-  const target = isGroup ? peer.replace('group:', '') : peer;
-  const key = await getKey(isGroup ? target : peer);
-  const payload = await encryptJSON(key, { kind:'text', text });
+    if (!text.trim()) return;
 
-  console.log("📤 Sending message:", { to: target, from: me, payload });
+    if (isGroup) {
+      const groupName = peer.replace('group:', '')
+      const members = (getGroupMembers?.(groupName) || []).filter(u => u !== me)
 
-  socket?.sendJSON({ type:'message', to: target, from: me, payload });
-  pushLocal({ from: me, to: peer, inbound:false, data:{ kind:'text', text } });
-  setText('');
-}
+      for (const m of members) {
+        const key = await getKey(m)
+        const payload = await encryptJSON(key, { kind: 'text', text, group: groupName })
+        socket?.sendJSON({ type: 'message', to: m, from: me, payload })
+      }
+      // lokálně uložím do vlákna skupiny
+      pushLocal({ from: me, to: peer, inbound: false, data: { kind:'text', text, group: groupName } })
+    } else {
+      const key = await getKey(peer)
+      const payload = await encryptJSON(key, { kind:'text', text })
+      socket?.sendJSON({ type:'message', to: peer, from: me, payload })
+      pushLocal({ from: me, to: peer, inbound:false, data:{ kind:'text', text } })
+    }
 
+    setText('');
+  }
 
-async function sendImage(file) {
-  const arr = await file.arrayBuffer();
-  const b64 = btoa(String.fromCharCode(...new Uint8Array(arr)));
+  async function sendImage(file) {
+    const arr = await file.arrayBuffer();
+    const b64 = btoa(String.fromCharCode(...new Uint8Array(arr)));
 
-  // čistý identifikátor pro "to"
-  const target = isGroup ? peer.replace('group:', '') : peer;
+    if (isGroup) {
+      const groupName = peer.replace('group:', '')
+      const members = (getGroupMembers?.(groupName) || []).filter(u => u !== me)
 
-  const key = await getKey(isGroup ? me : peer); 
-  const payload = await encryptJSON(key, { kind:'image', name:file.name, b64 });
-
-  socket?.sendJSON({ type:'image', to: target, from: me, payload });
-  pushLocal({ from: me, to: peer, inbound:false, data:{ kind:'image', name:file.name, b64 } });
-}
+      for (const m of members) {
+        const key = await getKey(m)
+        const payload = await encryptJSON(key, { kind:'image', name:file.name, b64, group: groupName })
+        socket?.sendJSON({ type:'image', to: m, from: me, payload })
+      }
+      pushLocal({ from: me, to: peer, inbound:false, data:{ kind:'image', name:file.name, b64, group: groupName } })
+    } else {
+      const key = await getKey(peer)
+      const payload = await encryptJSON(key, { kind:'image', name:file.name, b64 })
+      socket?.sendJSON({ type:'image', to: peer, from: me, payload })
+      pushLocal({ from: me, to: peer, inbound:false, data:{ kind:'image', name:file.name, b64 } })
+    }
+  }
 
   return (
     <div style={{display:'grid', gap:12}}>

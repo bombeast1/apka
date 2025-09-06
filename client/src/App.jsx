@@ -3,7 +3,7 @@ import { createSocket } from './ws.js'
 import { generateIdentity, deriveSharedKey } from './crypto.js'
 import Chat from './Chat.jsx'
 import VideoCall from './VideoCall.jsx'
-import { appendHistory, getHistory, saveGroups, loadGroups, setLastLogin, getLastLogin } from './storage.js'
+import { appendHistory, saveGroups, loadGroups, setLastLogin, getLastLogin } from './storage.js'
 
 const WS_URL = (import.meta.env.VITE_WS_URL) || 'wss://apka-1.onrender.com'
 
@@ -37,81 +37,75 @@ export default function App() {
     return ws
   }
 
-function onMessage(data) {
-  console.log("📥 Received WS message:", data);
+  function onMessage(data) {
+    console.log("📥 Received WS message:", data);
 
-  if (data.type === 'users') {
-    if (username) {
-      setUsers((data.users || []).filter(u => u.username !== username));
-    } else {
-      setUsers(data.users || []);
-    }
-    return;
-  }
-
-  if (data.type === 'groups') {
-    saveGroups(data.groups || [])
-    setGroups(data.groups || [])
-    return
-  }
-
-  if (data.type === 'auth' && data.phase === 'login') {
-    if (data.ok) {
-      setUsername(data.username)
-      setStage('app')
-      setLastLogin(data.username)
-
-      // po loginu doplníme svůj public key pro E2EE
-      if (me?.publicKeyJwk) {
-        ensureSocket().sendJSON({ type:'updatePublicKey', publicKeyJwk: me.publicKeyJwk })
+    // seznam online uživatelů (bez mě)
+    if (data.type === 'users') {
+      if (username) {
+        setUsers((data.users || []).filter(u => u.username !== username));
       } else {
-        const check = setInterval(() => {
-          if (me?.publicKeyJwk) {
-            ensureSocket().sendJSON({ type:'updatePublicKey', publicKeyJwk: me.publicKeyJwk })
-            clearInterval(check)
-          }
-        }, 500)
+        setUsers(data.users || []);
       }
+      return;
     }
-    return
+
+    // seznam skupin
+    if (data.type === 'groups') {
+      saveGroups(data.groups || [])
+      setGroups(data.groups || [])
+      return
+    }
+
+    // login / registrace
+    if (data.type === 'auth' && data.phase === 'login') {
+      if (data.ok) {
+        setUsername(data.username)
+        setStage('app')
+        setLastLogin(data.username)
+
+        // po loginu doplníme svůj public key pro E2EE
+        const pushKey = () => ensureSocket().sendJSON({ type:'updatePublicKey', publicKeyJwk: me?.publicKeyJwk })
+        if (me?.publicKeyJwk) pushKey()
+        else {
+          const check = setInterval(() => {
+            if (me?.publicKeyJwk) { pushKey(); clearInterval(check) }
+          }, 500)
+        }
+      }
+      return
+    }
+
+    // příchozí zprávy (DM i skupina)
+    if (data.type === 'message' || data.type === 'image') {
+      const { from, payload } = data
+      // Dešifruj a ULOŽ do správného vlákna (DM => from, skupina => group:<name>)
+      decryptAndStore(from, payload)
+      return
+    }
   }
 
-  // 📩 zprávy
-  if (data.type === 'message' || data.type === 'image') {
-    const from = data.from;
-    const to = data.to;
-
-    if (to === username) {
-      // DM → peer je odesílatel
-      decryptAndStore(from, data.payload, from);
-    }
-
-    if (groups.some(g => g.name === to && g.members.includes(username))) {
-      // Group → peer je název skupiny
-      decryptAndStore(from, data.payload, to);
-    }
-    return;
-  }
-}
-
-
-
-
-  // 👇 UPRAVENO: přidán parametr `peer`
-  async function decryptAndStore(from, payload, peer) {
+  // ⚙️ JEDINÁ verze decryptAndStore – detekuje DM vs. skupinu podle clear.group
+  async function decryptAndStore(from, payload) {
     try {
-      const key = await getKey(from);
-      const clear = await (await import('./crypto.js')).decryptJSON(key, payload);
+      const key = await getKey(from)
+      const clear = await (await import('./crypto.js')).decryptJSON(key, payload)
 
-      // 👇 teď ukládáme správně (me, peer)
-      appendHistory(username, peer || from, { from, to: peer || username, inbound: true, data: clear });
+      // rozhodni cílové vlákno
+      const peer = clear?.group ? `group:${clear.group}` : from
 
-      setHistoryTick(t => t + 1);
+      appendHistory(username, peer, {
+        from,
+        to: peer,
+        inbound: true,
+        data: clear
+      })
+
+      setHistoryTick(t => t + 1)
     } catch (e) {
-      console.warn('decrypt fail', e);
+      console.warn('decrypt fail', e)
     }
   }
-
 
   async function getKey(peerName) {
     if (sharedKeys.has(peerName)) return sharedKeys.get(peerName)
@@ -171,8 +165,6 @@ function onMessage(data) {
   }
 
   // stage === 'app'
-  const myDMs = users.map(u => u.username)
-
   return (
     <div className="container">
       <div className="card">

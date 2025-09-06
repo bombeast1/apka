@@ -118,7 +118,7 @@ wss.on('connection', (ws) => {
     // --- CHAT 1:1 ---
   if (type === 'message' || type === 'image' || type === 'call-offer' || type === 'call-answer' || type === 'ice-candidate' || type === 'hangup') {
   const { to, from, payload } = msg;
-
+console.log("📩 Server received chat message:", msg);
   // 1:1 chat nebo hovor
   if (online.has(to)) {
     const target = online.get(to);

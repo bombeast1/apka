@@ -37,13 +37,31 @@ export default function App() {
     return ws
   }
 
- function onMessage(data) {
+function onMessage(data) {
   console.log("Received WS message:", data);
+
+  // 📌 přihlášení / registrace
+  if (data.type === "auth") {
+    if (data.ok && data.phase === "login") {
+      setUsername(data.username);
+      setStage("app");
+      setLastLogin(data.username);
+    } else {
+      alert("Přihlášení/registrace selhalo");
+    }
+    return;
+  }
+
+  // 📌 seznam online uživatelů
+  if (data.type === "users") {
+    setUsers(data.users || []);
+    return;
+  }
 
   // 📌 seznam skupin
   if (data.type === "groups") {
-    // uložíme do state, ať se zobrazí v UI
     setGroups(data.groups || []);
+    saveGroups(data.groups || []); // volitelné – uloží lokálně
     return;
   }
 
@@ -57,7 +75,6 @@ export default function App() {
     const payload = data.payload;
     const fromKey = data.fromKey || null;
 
-    // pro group zprávu peer = "group:<název>"
     const peer =
       data.type === "group-message" && data.group
         ? `group:${String(data.group)}`
@@ -70,6 +87,7 @@ export default function App() {
   // 📌 fallback - pro debug
   console.warn("Unhandled WS message type:", data.type, data);
 }
+
 
 
   // 🔑 decrypt + save

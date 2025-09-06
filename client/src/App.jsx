@@ -41,10 +41,14 @@ export default function App() {
   console.log("📥 Received WS message:", data);
 
   if (data.type === 'users') {
-    // odfiltruj sám sebe
+  if (username) {
     setUsers((data.users || []).filter(u => u.username !== username));
-    return;
+  } else {
+    setUsers(data.users || []);
   }
+  return;
+}
+
 
   if (data.type === 'groups') {
     saveGroups(data.groups || [])

@@ -77,21 +77,25 @@ export default function App() {
     return
   }
 
-  if (data.type === 'message' || data.type === 'image') {
-    const from = data.from;
-    const to = data.to;
+async function decryptAndStore(from, payload, peer) {
+  try {
+    const key = await getKey(from);
+    const clear = await (await import('./crypto.js')).decryptJSON(key, payload);
 
-    if (to === username) {
-      // zpráva je pro mě
-      decryptAndStore(from, data.payload, to);
-    }
+    // 👇 teď správně ukládáme do historie pod (me, peer)
+    appendHistory(username, peer, {
+      from,
+      to: peer,
+      inbound: true,
+      data: clear
+    });
 
-    if (groups.some(g => g.name === to && g.members.includes(username))) {
-      // skupinová zpráva
-      decryptAndStore(from, data.payload, to);
-    }
-    return;
+    setHistoryTick(t => t + 1);
+  } catch (e) {
+    console.warn('decrypt fail', e);
   }
+}
+
 }
 
   // 👇 UPRAVENO: přidán parametr `peer`

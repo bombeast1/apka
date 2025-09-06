@@ -73,10 +73,12 @@ export default function App() {
 
     // 📩 příchozí zprávy (DM i group)
     if (data.type === 'message' || data.type === 'image') {
-      const { from, payload } = data
-       decryptAndStore(from, payload, fromKey);
-      return
-    }
+  const { from, payload } = data;
+  const fromKey = data.fromKey || null; // bezpečně nastav default
+  decryptAndStore(from, payload, fromKey);
+  return;
+}
+
   }
 
   // 🔑 decrypt + save

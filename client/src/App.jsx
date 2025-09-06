@@ -71,13 +71,21 @@ export default function App() {
       return
     }
 
+  
     // 📩 příchozí zprávy (DM i group)
-    if (data.type === 'message' || data.type === 'image') {
-  const { from, payload } = data;
+if (data.type === 'message' || data.type === 'image' || data.type === 'group-message') {
+  // Pro group-message nastavíme peer jako "group:<groupName>", jinak peer = from
+  const from = data.from;
+  const payload = data.payload;
   const fromKey = data.fromKey || null; // bezpečně nastav default
-  decryptAndStore(from, payload, fromKey);
+
+  // pokud jde o group-message, uložíme pod peer jménem "group:<groupName>"
+  const peer = (data.type === 'group-message' && data.group) ? `group:${String(data.group)}` : from;
+
+  decryptAndStore(peer, payload, fromKey);
   return;
 }
+
 
   }
 

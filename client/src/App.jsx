@@ -37,18 +37,17 @@ export default function App() {
     return ws
   }
 
-  function onMessage(data) {
+function onMessage(data) {
   console.log("📥 Received WS message:", data);
 
   if (data.type === 'users') {
-  if (username) {
-    setUsers((data.users || []).filter(u => u.username !== username));
-  } else {
-    setUsers(data.users || []);
+    if (username) {
+      setUsers((data.users || []).filter(u => u.username !== username));
+    } else {
+      setUsers(data.users || []);
+    }
+    return;
   }
-  return;
-}
-
 
   if (data.type === 'groups') {
     saveGroups(data.groups || [])
@@ -77,12 +76,31 @@ export default function App() {
     return
   }
 
+  // 📩 zprávy
+  if (data.type === 'message' || data.type === 'image') {
+    const from = data.from;
+    const to = data.to;
+
+    if (to === username) {
+      // DM → peer je odesílatel
+      decryptAndStore(from, data.payload, from);
+    }
+
+    if (groups.some(g => g.name === to && g.members.includes(username))) {
+      // Group → peer je název skupiny
+      decryptAndStore(from, data.payload, to);
+    }
+    return;
+  }
+}
+
+// ✅ jen jedna verze funkce
 async function decryptAndStore(from, payload, peer) {
   try {
     const key = await getKey(from);
     const clear = await (await import('./crypto.js')).decryptJSON(key, payload);
 
-    // 👇 teď správně ukládáme do historie pod (me, peer)
+    // ukládáme jako (me, peer)
     appendHistory(username, peer, {
       from,
       to: peer,
@@ -96,7 +114,6 @@ async function decryptAndStore(from, payload, peer) {
   }
 }
 
-}
 
   // 👇 UPRAVENO: přidán parametr `peer`
   async function decryptAndStore(from, payload, peer) {

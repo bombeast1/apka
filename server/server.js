@@ -141,46 +141,41 @@ wss.on('connection', (ws) => {
     }
 
     // --- CHAT / SIGNALING (1:1 i skupiny) ---
-    if (
-      [
-        'message',
-        'image',
-        'call-offer',
-        'call-answer',
-        'ice-candidate',
-        'hangup'
-      ].includes(type)
-    ) {
-      const { to, from, payload } = msg;
+   // --- CHAT / SIGNALING (1:1 i skupiny) ---
+if (
+  ['message', 'image', 'call-offer', 'call-answer', 'ice-candidate', 'hangup']
+    .includes(type)
+) {
+  const { to, from, payload } = msg;
 
-      // vezmeme veřejný klíč odesílatele
-      const senderInfo = online.get(from);
-      const fromKey = senderInfo?.publicKeyJwk || null;
+  // 🔑 přidej fromKey – veřejný klíč odesílatele
+  const senderInfo = online.get(from);
+  const fromKey = senderInfo?.publicKeyJwk || null;
 
-      console.log('📩 Server forwarding:', { type, from, to });
+  console.log("📩 Server forwarding:", { type, from, to });
 
-      // 1:1
-      if (online.has(to)) {
-        const target = online.get(to);
-        if (target?.ws?.readyState === 1) {
-          target.ws.send(JSON.stringify({ type, from, to, payload, fromKey }));
-        }
-      }
-
-      // Skupiny
-      if (groups.has(to)) {
-        for (const member of groups.get(to)) {
-          if (member === from) continue;
-          const target = online.get(member);
-          if (target?.ws?.readyState === 1) {
-            target.ws.send(
-              JSON.stringify({ type, from, to, payload, fromKey })
-            );
-          }
-        }
-      }
-      return;
+  // 1:1 zprávy
+  if (online.has(to)) {
+    const target = online.get(to);
+    if (target?.ws?.readyState === 1) {
+      target.ws.send(JSON.stringify({ type, from, to, payload, fromKey }));
     }
+  }
+
+  // Skupinové zprávy
+  if (groups.has(to)) {
+    for (const member of groups.get(to)) {
+      if (member === from) continue;
+      const target = online.get(member);
+      if (target?.ws?.readyState === 1) {
+        target.ws.send(JSON.stringify({ type, from, to, payload, fromKey }));
+      }
+    }
+  }
+
+  return;
+}
+
 
     // --- SKUPINY ---
     if (type === 'create-group') {

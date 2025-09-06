@@ -22,7 +22,7 @@ export default function App() {
   const [groups, setGroups] = useState(loadGroups()) // [{name, members:[]}]
   const [activePeer, setActivePeer] = useState(null) // 'bob' nebo 'group:team'
 
-  // Keys cache: peer -> CryptoKey
+  // Keys cache
   const [sharedKeys] = useState(new Map())
   const [historyTick, setHistoryTick] = useState(0)
 
@@ -40,31 +40,26 @@ export default function App() {
   function onMessage(data) {
     console.log("📥 Received WS message:", data);
 
-    // seznam online uživatelů (bez mě)
     if (data.type === 'users') {
-      if (username) {
-        setUsers((data.users || []).filter(u => u.username !== username));
-      } else {
-        setUsers(data.users || []);
-      }
-      return;
+      // odfiltruj mě
+      if (username) setUsers((data.users || []).filter(u => u.username !== username))
+      else setUsers(data.users || [])
+      return
     }
 
-    // seznam skupin
     if (data.type === 'groups') {
       saveGroups(data.groups || [])
       setGroups(data.groups || [])
       return
     }
 
-    // login / registrace
     if (data.type === 'auth' && data.phase === 'login') {
       if (data.ok) {
         setUsername(data.username)
         setStage('app')
         setLastLogin(data.username)
 
-        // po loginu doplníme svůj public key pro E2EE
+        // po loginu doplníme svůj public key
         const pushKey = () => ensureSocket().sendJSON({ type:'updatePublicKey', publicKeyJwk: me?.publicKeyJwk })
         if (me?.publicKeyJwk) pushKey()
         else {
@@ -76,22 +71,21 @@ export default function App() {
       return
     }
 
-    // příchozí zprávy (DM i skupina)
+    // 📩 příchozí zprávy (DM i group)
     if (data.type === 'message' || data.type === 'image') {
       const { from, payload } = data
-      // Dešifruj a ULOŽ do správného vlákna (DM => from, skupina => group:<name>)
       decryptAndStore(from, payload)
       return
     }
   }
 
-  // ⚙️ JEDINÁ verze decryptAndStore – detekuje DM vs. skupinu podle clear.group
+  // 🔑 decrypt + save
   async function decryptAndStore(from, payload) {
     try {
       const key = await getKey(from)
       const clear = await (await import('./crypto.js')).decryptJSON(key, payload)
 
-      // rozhodni cílové vlákno
+      // group vs. DM
       const peer = clear?.group ? `group:${clear.group}` : from
 
       appendHistory(username, peer, {
@@ -109,8 +103,10 @@ export default function App() {
 
   async function getKey(peerName) {
     if (sharedKeys.has(peerName)) return sharedKeys.get(peerName)
-    const peer = users.find(u => u.username === peerName) || { publicKeyJwk: null }
-    if (!peer.publicKeyJwk || !me?.privateKey) throw new Error('Missing keys')
+
+    const peer = users.find(u => u.username === peerName)
+    if (!peer?.publicKeyJwk || !me?.privateKey) throw new Error('Missing keys')
+
     const key = await deriveSharedKey(me.privateKey, peer.publicKeyJwk)
     sharedKeys.set(peerName, key)
     return key

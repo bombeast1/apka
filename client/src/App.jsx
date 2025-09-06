@@ -38,11 +38,7 @@ export default function App() {
   }
 
   function onMessage(data) {
-    if (data.type === 'users') {
-      // odfiltruj sám sebe
-      setUsers((data.users || []).filter(u => u.username !== username))
-      return
-    }
+    console.log("📥 Received WS message:", data);
     if (data.type === 'groups') {
       saveGroups(data.groups || [])
       setGroups(data.groups || [])

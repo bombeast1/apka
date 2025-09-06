@@ -19,18 +19,17 @@ export default function Chat({ me, peer, socket, getKey, isGroup=false, getGroup
 
   async function sendText() {
   if (!text.trim()) return;
-
-  // čistý identifikátor pro "to"
   const target = isGroup ? peer.replace('group:', '') : peer;
-
-  const key = await getKey(isGroup ? me : peer); 
+  const key = await getKey(isGroup ? target : peer);
   const payload = await encryptJSON(key, { kind:'text', text });
+
+  console.log("📤 Sending message:", { to: target, from: me, payload });
 
   socket?.sendJSON({ type:'message', to: target, from: me, payload });
   pushLocal({ from: me, to: peer, inbound:false, data:{ kind:'text', text } });
-
   setText('');
 }
+
 
 async function sendImage(file) {
   const arr = await file.arrayBuffer();

@@ -73,29 +73,26 @@ export default function App() {
 
     // 📩 příchozí zprávy (DM i group)
     if (data.type === 'message' || data.type === 'image') {
-  const from = data.from;
-  const to = data.to;
-
-  // ✅ peer = ten, s kým mám otevřený chat (pokud je to 1:1)
-  const peer = (to === username) ? from : to;
-
-  decryptAndStore(from, data.payload, peer);
+  const { from, payload } = data;
+  const fromKey = data.fromKey || null; // bezpečně nastav default
+  decryptAndStore(from, payload, fromKey);
   return;
 }
-
 
   }
 
   // 🔑 decrypt + save
- async function decryptAndStore(from, payload, peer) {
+ async function decryptAndStore(from, payload, fromKey) {
   try {
-    const key = await getKey(from);
+    const key = await getKey(from, fromKey); // <— předáváme fromKey
     const clear = await (await import('./crypto.js')).decryptJSON(key, payload);
 
-    // ✅ správně ukládáme: me = username, peer = konverzační partner
-    appendHistory(username, peer, {
+    // DM vs. group: pokud je ve zprávě `group`, ulož pod "group:<name>"
+    const peerId = clear?.group ? `group:${clear.group}` : from;
+
+    appendHistory(username, peerId, {
       from,
-      to: username,
+      to: peerId,
       inbound: true,
       data: clear
     });
@@ -105,7 +102,6 @@ export default function App() {
     console.warn('decrypt fail', e);
   }
 }
-
 
 
  async function getKey(peerName, overrideJwk) {

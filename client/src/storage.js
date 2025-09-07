@@ -43,11 +43,7 @@ const key = String(peer).startsWith('group:') ? String(peer) : `dm:${String(me |
 return db.history?.[key] || [];
 }
 
-export function getHistory(me, peer) {
-  const db = read();
-  const key = peer.startsWith('group:') ? peer : `dm:${me}:${peer}`;
-  return db.history?.[key] || [];
-}
+
 
 export function saveGroups(list) {
   const db = read();

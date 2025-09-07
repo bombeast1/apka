@@ -8,6 +8,7 @@ export default function Chat({ me, peer, socket, getKey, isGroup=false, getGroup
   const fileRef = useRef(null)
 
   useEffect(() => {
+    console.log('[Chat] reload history', { me, peer, tick });
     setItems(getHistory(me, peer));
   }, [me, peer, tick]);
 

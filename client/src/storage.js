@@ -21,12 +21,26 @@ export function getLastLogin() {
 
 // Chat historie: klíč 'dm:<me>:<peer>' nebo 'group:<name>'
 export function appendHistory(me, peer, msg) {
-  const db = read();
-  const key = peer.startsWith('group:') ? peer : `dm:${me}:${peer}`;
-  db.history = db.history || {};
-  db.history[key] = db.history[key] || [];
-  db.history[key].push({ t: Date.now(), ...msg });
-  write(db);
+if (!peer) return; // záloha
+const db = read();
+db.history = db.history || {};
+
+
+// pokud peer už má tvar "group:...", použij ho přímo, jinak normalizuj
+const key = String(peer).startsWith('group:') ? String(peer) : `dm:${String(me || '')}:${String(peer)}`;
+
+
+db.history[key] = db.history[key] || [];
+db.history[key].push({ t: Date.now(), ...msg });
+write(db);
+}
+
+
+export function getHistory(me, peer) {
+if (!peer) return [];
+const db = read();
+const key = String(peer).startsWith('group:') ? String(peer) : `dm:${String(me || '')}:${String(peer)}`;
+return db.history?.[key] || [];
 }
 
 export function getHistory(me, peer) {

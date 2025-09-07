@@ -100,7 +100,8 @@ if (data.type === "auth" && data.phase === "login" && data.ok) {
   try {
     const key = await getKey(from, fromKey); // <— předáváme fromKey
     const clear = await (await import('./crypto.js')).decryptJSON(key, payload);
-
+const who = username || me?.name || 'unknown';
+console.log('[DEBUG] storing incoming message', { who, peerId, clear });
     // DM vs. group: pokud je ve zprávě `group`, ulož pod "group:<name>"
     const peerId = clear?.group ? `group:${clear.group}` : from;
 

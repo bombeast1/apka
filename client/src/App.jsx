@@ -96,27 +96,33 @@ if (data.type === "auth" && data.phase === "login" && data.ok) {
 
 
   // 🔑 decrypt + save
-async function decryptAndStore(from, payload, fromKey) {
+async function decryptAndStore(sender, payload, fromKey, peerId) {
   try {
-    const key = await getKey(from, fromKey);
+    // 1) odvoď E2EE klíč podle odesílatele
+    const key = await getKey(sender, fromKey);
+
+    // 2) dešifruj payload
     const clear = await decryptJSON(key, payload);
 
-      const peerId = from;   // protistrana
-    const meId = to;       // já, příjemce zprávy
+    // 3) určete "já" (lokální uživatel) – preferuj `username`, fallback na poslední login
+    const meId = username || getLastLogin();
 
-    console.log('[DEBUG] storing incoming message', { meId, peerId, clear });
+    console.log('[DEBUG] storing incoming message', { meId, peerId, from: sender, clear });
 
+    // 4) ulož do historie ve formátu, který čte Chat.jsx: dm:<meId>:<peerId>
     appendHistory(meId, peerId, {
-      from,
+      from: sender,
       to: meId,
       inbound: true,
-      data: clear
+      data: clear,
     });
+
     setHistoryTick(t => t + 1);
   } catch (err) {
     console.error('decrypt fail', err);
   }
 }
+
 
 
 

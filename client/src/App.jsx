@@ -96,28 +96,28 @@ if (data.type === "auth" && data.phase === "login" && data.ok) {
 
 
   // 🔑 decrypt + save
- async function decryptAndStore(from, payload, fromKey) {
+async function decryptAndStore(from, payload, fromKey) {
   try {
     const key = await getKey(from, fromKey);
     const clear = await decryptJSON(key, payload);
 
-     const who = from; 
-    const peerId = from; // <-- oprava, peerId je prostě odesílatel
+    const peerId = from; // protistrana
+    const meId = me?.name || username; // já
 
-    console.log('[DEBUG] storing incoming message', { who, peerId, clear });
+    console.log('[DEBUG] storing incoming message', { meId, peerId, clear });
 
-    appendHistory(me?.name || username, peerId, {
-  from,
-  to: peerId,
-  inbound: true,
-  data: clear
-});
-
+    appendHistory(meId, peerId, {
+      from,
+      to: meId,
+      inbound: true,
+      data: clear
+    });
     setHistoryTick(t => t + 1);
   } catch (err) {
     console.error('decrypt fail', err);
   }
 }
+
 
 
 

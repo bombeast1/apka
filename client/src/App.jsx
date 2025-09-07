@@ -101,7 +101,7 @@ if (data.type === "auth" && data.phase === "login" && data.ok) {
     const key = await getKey(from, fromKey);
     const clear = await decryptJSON(key, payload);
 
-    const who = username || me?.name || 'unknown';
+     const who = from; 
     const peerId = from; // <-- oprava, peerId je prostě odesílatel
 
     console.log('[DEBUG] storing incoming message', { who, peerId, clear });

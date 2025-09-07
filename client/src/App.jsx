@@ -85,7 +85,7 @@ if (data.type === "auth" && data.phase === "login" && data.ok) {
         ? `group:${String(data.group)}`
         : from;
 
-    decryptAndStore(peer, payload, fromKey);
+     decryptAndStore(from, payload, fromKey, peer);
     return;
   }
 

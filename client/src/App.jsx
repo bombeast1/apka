@@ -102,6 +102,8 @@ if (data.type === "auth" && data.phase === "login" && data.ok) {
     const clear = await decryptJSON(key, payload);
 
     const who = username || me?.name || 'unknown';
+    const peerId = from; // <-- oprava, peerId je prostě odesílatel
+
     console.log('[DEBUG] storing incoming message', { who, peerId, clear });
 
     appendHistory(who, peerId, {
@@ -115,6 +117,7 @@ if (data.type === "auth" && data.phase === "login" && data.ok) {
     console.error('decrypt fail', err);
   }
 }
+
 
 
 

@@ -101,8 +101,8 @@ async function decryptAndStore(from, payload, fromKey) {
     const key = await getKey(from, fromKey);
     const clear = await decryptJSON(key, payload);
 
-    const peerId = from; // protistrana
-    const meId = me?.name || username; // já
+      const peerId = from;   // protistrana
+    const meId = to;       // já, příjemce zprávy
 
     console.log('[DEBUG] storing incoming message', { meId, peerId, clear });
 

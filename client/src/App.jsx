@@ -106,12 +106,13 @@ if (data.type === "auth" && data.phase === "login" && data.ok) {
 
     console.log('[DEBUG] storing incoming message', { who, peerId, clear });
 
-    appendHistory(who, peerId, {
-      from,
-      to: peerId,
-      inbound: true,
-      data: clear
-    });
+    appendHistory(me?.name || username, peerId, {
+  from,
+  to: peerId,
+  inbound: true,
+  data: clear
+});
+
     setHistoryTick(t => t + 1);
   } catch (err) {
     console.error('decrypt fail', err);

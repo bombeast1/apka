@@ -6,7 +6,7 @@ import VideoCall from './VideoCall.jsx'
 import { appendHistory, saveGroups, loadGroups, setLastLogin, getLastLogin } from './storage.js'
 
 const WS_URL = (import.meta.env.VITE_WS_URL) || 'wss://apka-1.onrender.com'
-
+//hello there
 export default function App() {
   // AUTH
   const [stage, setStage] = useState('auth')

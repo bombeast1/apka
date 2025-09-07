@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { createSocket } from './ws.js'
-import { generateIdentity, deriveSharedKey } from './crypto.js'
+import { generateIdentity, deriveSharedKey, decryptJSON } from './crypto.js';
 import Chat from './Chat.jsx'
 import VideoCall from './VideoCall.jsx'
 import { appendHistory, saveGroups, loadGroups, setLastLogin, getLastLogin } from './storage.js'
@@ -98,25 +98,24 @@ if (data.type === "auth" && data.phase === "login" && data.ok) {
   // 🔑 decrypt + save
  async function decryptAndStore(from, payload, fromKey) {
   try {
-    const key = await getKey(from, fromKey); // <— předáváme fromKey
-    const clear = await (await import('./crypto.js')).decryptJSON(key, payload);
-const who = username || me?.name || 'unknown';
-console.log('[DEBUG] storing incoming message', { who, peerId, clear });
-    // DM vs. group: pokud je ve zprávě `group`, ulož pod "group:<name>"
-    const peerId = clear?.group ? `group:${clear.group}` : from;
+    const key = await getKey(from, fromKey);
+    const clear = await decryptJSON(key, payload);
 
-    appendHistory(username, peerId, {
+    const who = username || me?.name || 'unknown';
+    console.log('[DEBUG] storing incoming message', { who, peerId, clear });
+
+    appendHistory(who, peerId, {
       from,
       to: peerId,
       inbound: true,
       data: clear
     });
-
     setHistoryTick(t => t + 1);
-  } catch (e) {
-    console.warn('decrypt fail', e);
+  } catch (err) {
+    console.error('decrypt fail', err);
   }
 }
+
 
 
  async function getKey(peerName, overrideJwk) {
